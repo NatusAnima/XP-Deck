@@ -123,10 +123,11 @@ class IGDBClient:
             "raw_payload": raw
         }
 
-    async def fetch_top_games_for_year(self, year: int, limit: int = 50) -> List[Dict[str, Any]]:
+    async def fetch_top_games_for_year(self, year: int, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
         """
         Query IGDB for top games released in a given year.
         Filters out shovelware using total_rating_count sorting and category filtering.
+        Supports offset for continuous pagination.
         """
         token = await self.get_valid_token()
         if not token:
@@ -159,6 +160,7 @@ class IGDBClient:
               & version_parent = null;
         sort total_rating_count desc;
         limit {limit};
+        offset {offset};
         """.strip()
 
         try:

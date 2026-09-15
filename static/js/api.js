@@ -3,8 +3,8 @@
  */
 
 const API = {
-  async getDeck(year, limit = 30) {
-    const res = await fetch(`/api/deck?year=${encodeURIComponent(year)}&limit=${encodeURIComponent(limit)}`);
+  async getDeck(year, limit = 30, offset = 0) {
+    const res = await fetch(`/api/deck?year=${encodeURIComponent(year)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`);
     if (!res.ok) throw new Error(`Deck fetch failed: ${res.statusText}`);
     return await res.json();
   },
@@ -47,6 +47,67 @@ const API = {
   async getStatus() {
     const res = await fetch('/api/status');
     if (!res.ok) throw new Error(`Status check failed: ${res.statusText}`);
+    return await res.json();
+  },
+
+  async getSettings() {
+    const res = await fetch('/api/settings');
+    if (!res.ok) throw new Error(`Failed to load settings: ${res.statusText}`);
+    return await res.json();
+  },
+
+  async updateSettings(ratingDurationSeconds) {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rating_duration_seconds: Number(ratingDurationSeconds) })
+    });
+    if (!res.ok) throw new Error(`Failed to update settings: ${res.statusText}`);
+    return await res.json();
+  },
+
+  async getCatalog(status = 'all', search = '', sort = 'date_desc') {
+    const params = new URLSearchParams();
+    if (status && status !== 'all') params.set('status', status);
+    if (search && search.trim()) params.set('search', search.trim());
+    if (sort) params.set('sort', sort);
+
+    const res = await fetch(`/api/catalog?${params.toString()}`);
+    if (!res.ok) throw new Error(`Catalog fetch failed: ${res.statusText}`);
+    return await res.json();
+  },
+
+  async updateCatalogItem(igdbId, data) {
+    const res = await fetch(`/api/catalog/${encodeURIComponent(igdbId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error(`Failed to update catalog item: ${res.statusText}`);
+    return await res.json();
+  },
+
+  async deleteCatalogItem(igdbId) {
+    const res = await fetch(`/api/catalog/${encodeURIComponent(igdbId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) throw new Error(`Failed to delete swipe: ${res.statusText}`);
+    return await res.json();
+  },
+
+  async resetData(scope, year = null) {
+    const res = await fetch('/api/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope, year })
+    });
+    if (!res.ok) throw new Error(`Reset failed: ${res.statusText}`);
+    return await res.json();
+  },
+
+  async getNetworkInfo() {
+    const res = await fetch('/api/network-info');
+    if (!res.ok) throw new Error(`Failed to get network info: ${res.statusText}`);
     return await res.json();
   }
 };

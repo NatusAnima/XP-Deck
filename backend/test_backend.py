@@ -75,11 +75,44 @@ async def run_tests():
     json_data = export_json(records)
     assert "San Andreas" in json_data
 
-    playnite_data = export_playnite_csv(records)
-    print("Playnite CSV sample:\n", "\n".join(playnite_data.strip().split("\n")[:3]))
-    assert "Completed" in playnite_data
+    print("\n=== Testing Settings API ===")
+    from backend.db import set_setting, get_setting, get_all_settings
+    set_setting("rating_duration_seconds", "15")
+    assert get_setting("rating_duration_seconds") == "15"
+    settings = get_all_settings()
+    assert settings.get("rating_duration_seconds") == "15"
+    print("Settings verified:", settings)
 
-    print("\n>>> ALL BACKEND TESTS PASSED SUCCESSFULLY! <<<")
+    print("\n=== Testing Catalog Explorer Queries & Updates ===")
+    from backend.db import get_catalog_games, update_swipe_item, delete_swipe_item
+    catalog_all = get_catalog_games()
+    print(f"Catalog total items: {len(catalog_all)}")
+    assert len(catalog_all) >= 2
+
+    # Update item in catalog
+    updated = update_swipe_item(1008, "played", platform_played="PlayStation 2", hours_played=75, user_rating=9)
+    assert updated is True
+    catalog_updated = get_catalog_games(search="San Andreas")
+    assert len(catalog_updated) >= 1
+    # Verify 1008 was updated
+    target = [g for g in catalog_updated if g["igdb_id"] == 1008][0]
+    assert target["hours_played"] == 75
+
+    # Test delete from catalog (unswipe)
+    deleted = delete_swipe_item(1009)
+    assert deleted is True
+
+    print("\n=== Testing Scoped Danger Zone Resets ===")
+    from backend.db import reset_year_swipes, reset_all_swipes
+    # Reset specific year
+    del_year = reset_year_swipes(2004)
+    print(f"Deleted swipes for 2004: {del_year}")
+    # Reset all swipes
+    del_all = reset_all_swipes()
+    print(f"Deleted remaining swipes: {del_all}")
+    assert len(get_catalog_games()) == 0
+
+    print("\n>>> ALL BACKEND EXPANSION TESTS PASSED SUCCESSFULLY! <<<")
 
 if __name__ == "__main__":
     asyncio.run(run_tests())

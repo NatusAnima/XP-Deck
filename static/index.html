@@ -4,24 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>XP-Deck v1.0 | Personal Video Game Archive & Swiper</title>
-  <meta name="description" content="A lightweight, nostalgic Windows XP styled web app for sorting, rating, and cataloging your lifetime gaming history.">
+  <meta name="description" content="A lightweight, nostalgic Windows XP styled web application for cataloging, rating, and managing your lifetime video game backlog.">
   <link rel="stylesheet" href="/static/css/xp-luna.css">
   <link rel="stylesheet" href="/static/css/swiper.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='20' font-size='20'>🎮</text></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%232E62CD' d='M19 6H5c-2.2 0-4 1.8-4 4v4c0 2.2 1.8 4 4 4h14c2.2 0 4-1.8 4-4v-4c0-2.2-1.8-4-4-4z'/></svg>">
 </head>
 <body>
 
   <!-- Main XP Window Frame -->
-  <main class="xp-window" id="main-window" role="application" aria-label="XP-Deck Video Game Backlog Swiper">
+  <main class="xp-window" id="main-window" role="application" aria-label="XP-Deck Application">
     
     <!-- Title Bar -->
     <header class="xp-title-bar">
       <div class="xp-title-content">
-        <span class="xp-app-icon" aria-hidden="true">🎮</span>
+        <span class="xp-app-icon" id="header-app-icon">
+          <!-- Injected via SVG Icons -->
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#FFFFFF" d="M19 6H5c-2.2 0-4 1.8-4 4v4c0 2.2 1.8 4 4 4h14c2.2 0 4-1.8 4-4v-4c0-2.2-1.8-4-4-4z"/><circle cx="6" cy="12" r="3" fill="#D4D0C8"/><circle cx="16" cy="11" r="1.2" fill="#D13526"/><circle cx="18" cy="13" r="1.2" fill="#42B72A"/><circle cx="16" cy="15" r="1.2" fill="#EAB308"/><circle cx="14" cy="13" r="1.2" fill="#3B82F6"/></svg>
+        </span>
         <h1 style="font-size: inherit; margin: 0; font-weight: inherit;">XP-Deck v1.0 - Video Game Archive</h1>
       </div>
       <div class="xp-title-buttons">
-        <button class="xp-win-btn" aria-label="Minimize" onclick="alert('XP-Deck is running in active memory.')">_</button>
+        <button class="xp-win-btn" aria-label="Minimize" onclick="alert('XP-Deck is active.')">_</button>
         <button class="xp-win-btn" aria-label="Maximize" onclick="document.body.classList.toggle('maximized')">□</button>
         <button class="xp-win-btn close" aria-label="Close" onclick="if(confirm('Close XP-Deck?')) window.close();">✕</button>
       </div>
@@ -33,9 +36,23 @@
       <div class="xp-menu-item" tabindex="0">
         File
         <div class="xp-dropdown">
-          <div class="xp-dropdown-item" id="menu-export">💾 Export Center...</div>
+          <div class="xp-dropdown-item" id="menu-catalog">
+            <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#2B579A" d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+            <span>My Game Archive...</span>
+          </div>
+          <div class="xp-dropdown-item" id="menu-export">
+            <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#2B579A" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4z"/></svg>
+            <span>Export Center...</span>
+          </div>
           <div class="xp-dropdown-divider"></div>
-          <div class="xp-dropdown-item" onclick="location.reload()">🔄 Reload Deck</div>
+          <div class="xp-dropdown-item" id="menu-danger" style="color: #991D11;">
+            <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#FFCC00" d="M1 21h22L12 2 1 21z"/><path fill="#000" d="M13 18h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+            <span>Danger Zone (Reset)...</span>
+          </div>
+          <div class="xp-dropdown-divider"></div>
+          <div class="xp-dropdown-item" onclick="location.reload()">
+            <span>Reload Application</span>
+          </div>
         </div>
       </div>
 
@@ -43,9 +60,30 @@
       <div class="xp-menu-item" tabindex="0">
         View
         <div class="xp-dropdown">
-          <div class="xp-dropdown-item" id="menu-stats">📊 Statistics & Progress...</div>
+          <div class="xp-dropdown-item" id="menu-stats">
+            <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#2B579A" d="M4 14h3v6H4zm5-5h3v11H9zm5-4h3v15h-3zm5 6h3v9h-3z"/></svg>
+            <span>Statistics & Progress...</span>
+          </div>
+          <div class="xp-dropdown-item" id="menu-connect-mobile">
+            <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#333" d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zM7 5h10v14H7z"/></svg>
+            <span>Connect Phone (LAN)...</span>
+          </div>
           <div class="xp-dropdown-divider"></div>
-          <div class="xp-dropdown-item" id="menu-sound-toggle">🔊 Toggle Sound FX</div>
+          <div class="xp-dropdown-item" id="menu-sound-toggle">
+            <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#333" d="M3 9v6h4l5 5V4L7 9H3z"/></svg>
+            <span>Toggle Sound FX</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Options Menu -->
+      <div class="xp-menu-item" tabindex="0">
+        Options
+        <div class="xp-dropdown">
+          <div class="xp-dropdown-item" id="menu-options">
+            <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#555" d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58-1.92-3.32-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54h-3.84l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96L2.74 8.87l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58 1.92 3.32 2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54h3.84l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96 1.92-3.32-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+            <span>Preferences / Settings...</span>
+          </div>
         </div>
       </div>
 
@@ -53,135 +91,387 @@
       <div class="xp-menu-item" tabindex="0">
         Help
         <div class="xp-dropdown">
-          <div class="xp-dropdown-item" onclick="window.app.openModal('modal-shortcuts')">⌨️ Keyboard Shortcuts</div>
+          <div class="xp-dropdown-item" onclick="window.app.openModal('modal-shortcuts')">
+            <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#ECE9D8" stroke="#716F64" d="M2 5h20v14H2z"/><rect x="4" y="7" width="2" height="2" fill="#333"/></svg>
+            <span>Keyboard Shortcuts</span>
+          </div>
           <div class="xp-dropdown-divider"></div>
-          <div class="xp-dropdown-item" id="menu-about">ℹ️ About XP-Deck...</div>
+          <div class="xp-dropdown-item" id="menu-about">
+            <svg class="xp-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#2080DF"/><path fill="#FFF" d="M11 7h2v2h-2zm0 4h2v6h-2z"/></svg>
+            <span>About XP-Deck...</span>
+          </div>
         </div>
       </div>
     </nav>
 
-    <!-- Era & Year Toolbar -->
-    <section class="xp-toolbar" aria-label="Year and Progress Controls">
-      <div class="xp-year-selector">
-        <label for="year-select" class="xp-label">Year:</label>
-        <select id="year-select" class="xp-select" aria-label="Select Release Year">
-          <!-- Populated dynamically 1980-2026 -->
-        </select>
-      </div>
-
-      <div class="xp-progress-wrapper" title="Reviewed percentage for this year">
-        <div class="xp-progress-track">
-          <div class="xp-progress-bar" id="xp-progress-bar"></div>
+    <!-- Toolbar: Year Selection, Progress & Archive Button -->
+    <section class="xp-toolbar" aria-label="Toolbar">
+      <div class="xp-toolbar-left">
+        <div class="xp-year-selector">
+          <label for="year-select" class="xp-label">Year:</label>
+          <select id="year-select" class="xp-select" aria-label="Select Release Year">
+            <!-- Populated 1980-2026 -->
+          </select>
         </div>
-        <span class="xp-badge" id="xp-progress-badge">0%</span>
+
+        <div class="xp-progress-wrapper" title="Reviewed percentage for this year">
+          <div class="xp-progress-track">
+            <div class="xp-progress-bar" id="xp-progress-bar"></div>
+          </div>
+          <span class="xp-badge" id="xp-progress-badge">0%</span>
+        </div>
       </div>
 
-      <button class="xp-button" id="sound-toggle-btn" style="padding: 2px 6px; font-size: 10px;" title="Toggle retro audio">
-        🔊 Sound: ON
-      </button>
-    </section>
+      <div style="display: flex; gap: 6px; align-items: center;">
+        <button class="xp-button" onclick="window.app.openCatalogModal('all')" style="padding: 2px 8px; font-size: 11px;" title="View all logged games">
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#2B579A" d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+          <span>Catalog</span>
+        </button>
 
-    <!-- Card Deck Area -->
-    <section class="deck-container" id="deck-container" aria-label="Game Cards Stack">
-      
-      <!-- Empty Queue State -->
-      <div class="deck-empty" id="deck-empty">
-        <div class="deck-empty-icon">🏆</div>
-        <h3>All Caught Up!</h3>
-        <p>You have reviewed all available titles for this year. Select another year from the toolbar above or export your catalog.</p>
-        <button class="xp-button xp-button-blue" onclick="window.app.openModal('modal-export')">
-          💾 Open Export Center
+        <button class="xp-button" id="sound-toggle-btn" style="padding: 2px 8px; font-size: 11px;" title="Toggle audio">
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#333" d="M3 9v6h4l5 5V4L7 9H3z"/></svg>
+          <span>Sound</span>
         </button>
       </div>
-
-      <!-- 5-Card Stack Buffers will be mounted here dynamically by app.js -->
-
-      <!-- Quick-Tag Popover (Auto-opens on Played) -->
-      <div class="quicktag-popover" id="quicktag-popover" role="dialog" aria-labelledby="quicktag-title">
-        <div class="quicktag-header">
-          <span id="quicktag-title">Tagged: Game</span>
-          <span class="quicktag-timer" id="quicktag-timer">Auto-saving...</span>
-        </div>
-
-        <div class="quicktag-timer-bar">
-          <div class="quicktag-timer-fill" id="quicktag-timer-fill"></div>
-        </div>
-
-        <div class="quicktag-fields">
-          <div class="quicktag-field">
-            <label for="quicktag-platform">Platform Played:</label>
-            <select id="quicktag-platform" class="xp-select">
-              <option value="">(Select)</option>
-            </select>
-          </div>
-
-          <div class="quicktag-field" style="max-width: 80px;">
-            <label for="quicktag-hours">Hours:</label>
-            <input type="number" id="quicktag-hours" class="xp-select" placeholder="e.g. 25" min="1" max="9999" style="width: 100%;">
-          </div>
-        </div>
-
-        <div class="quicktag-field">
-          <label>Your Rating (1-10):</label>
-          <div class="quicktag-rating-buttons">
-            <button type="button" class="rating-btn" data-val="1">1</button>
-            <button type="button" class="rating-btn" data-val="2">2</button>
-            <button type="button" class="rating-btn" data-val="3">3</button>
-            <button type="button" class="rating-btn" data-val="4">4</button>
-            <button type="button" class="rating-btn" data-val="5">5</button>
-            <button type="button" class="rating-btn" data-val="6">6</button>
-            <button type="button" class="rating-btn" data-val="7">7</button>
-            <button type="button" class="rating-btn" data-val="8">8</button>
-            <button type="button" class="rating-btn" data-val="9">9</button>
-            <button type="button" class="rating-btn" data-val="10">10</button>
-          </div>
-        </div>
-
-        <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px;">
-          <button class="xp-button xp-button-green" id="btn-quicktag-save" style="padding: 3px 12px; font-size: 11px;">
-            ✓ Save Now
-          </button>
-        </div>
-      </div>
-
     </section>
 
-    <!-- Deck Controls Bar -->
-    <footer class="deck-controls" aria-label="Deck Action Buttons">
-      <button class="xp-button xp-button-red action-btn" id="btn-skip" title="Mark as Skipped (Key A or Left Arrow)">
-        <span>✕ Skip</span>
-        <span class="action-btn-key">[A / ←]</span>
-      </button>
+    <!-- Workspace: Dual-Pane on PC (Deck on Left, Inspector on Right) -->
+    <div class="xp-workspace">
+      
+      <!-- Left Column: Deck & Mobile Actions -->
+      <div style="display: flex; flex-direction: column;">
+        
+        <section class="deck-container" id="deck-container" aria-label="Game Cards Stack">
+          
+          <!-- Empty Queue State with End-of-Year Actions -->
+          <div class="deck-empty" id="deck-empty">
+            <svg class="deck-empty-icon" viewBox="0 0 24 24"><path fill="#FFB300" d="M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94.63 1.5 1.98 2.63 3.61 2.96V19H8v2h8v-2h-3v-3.1c1.63-.33 2.98-1.46 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2z"/></svg>
+            <h3>Year Complete!</h3>
+            <p>You have reviewed all available titles for <span id="empty-year-name" style="font-weight: bold; color: #FFF;">2004</span>.</p>
+            
+            <div class="deck-empty-actions">
+              <button class="xp-button xp-button-green" id="empty-load-more-btn" style="padding: 8px;">
+                <span>Download Next 30 Games</span>
+              </button>
+              <button class="xp-button xp-button-blue" id="empty-next-year-btn" style="padding: 8px;">
+                <span>Advance to Next Year</span>
+              </button>
+              <button class="xp-button" onclick="window.app.openCatalogModal('all')" style="padding: 6px;">
+                <span>Review Catalog</span>
+              </button>
+            </div>
+          </div>
 
-      <button class="xp-button xp-button-blue action-btn" id="btn-backlog" title="Add to Backlog (Key W or Up Arrow)">
-        <span>⭐ Backlog</span>
-        <span class="action-btn-key">[W / ↑]</span>
-      </button>
+          <!-- Quick-Tag Popover (Auto-opens on Played, Duration Configurable) -->
+          <div class="quicktag-popover" id="quicktag-popover" role="dialog" aria-labelledby="quicktag-title">
+            <div class="quicktag-header">
+              <span id="quicktag-title">Tagged: Game</span>
+              <span class="quicktag-timer" id="quicktag-timer">Auto-saving...</span>
+            </div>
 
-      <button class="xp-button action-btn" id="btn-flip" title="Flip Card Details (Space or F)">
-        <span>↺ Flip</span>
-        <span class="action-btn-key">[Space]</span>
-      </button>
+            <div class="quicktag-timer-bar">
+              <div class="quicktag-timer-fill" id="quicktag-timer-fill"></div>
+            </div>
 
-      <button class="xp-button xp-button-green action-btn" id="btn-played" title="Mark as Played (Key D or Right Arrow)">
-        <span>✓ Played</span>
-        <span class="action-btn-key">[D / →]</span>
-      </button>
+            <div class="quicktag-fields">
+              <div class="quicktag-field">
+                <label for="quicktag-platform">Platform Played:</label>
+                <select id="quicktag-platform" class="xp-select">
+                  <option value="">(Select)</option>
+                </select>
+              </div>
 
-      <button class="xp-button action-btn" id="btn-undo" title="Undo Last Swipe (Ctrl+Z or U)" style="max-width: 60px;">
-        <span>↶ Undo</span>
-        <span class="action-btn-key">[Ctrl+Z]</span>
-      </button>
-    </footer>
+              <div class="quicktag-field" style="max-width: 80px;">
+                <label for="quicktag-hours">Hours:</label>
+                <input type="number" id="quicktag-hours" class="xp-select" placeholder="e.g. 25" min="1" max="9999" style="width: 100%;">
+              </div>
+            </div>
+
+            <div class="quicktag-field">
+              <label>Your Rating (1-10):</label>
+              <div class="quicktag-rating-buttons">
+                <button type="button" class="rating-btn" data-val="1">1</button>
+                <button type="button" class="rating-btn" data-val="2">2</button>
+                <button type="button" class="rating-btn" data-val="3">3</button>
+                <button type="button" class="rating-btn" data-val="4">4</button>
+                <button type="button" class="rating-btn" data-val="5">5</button>
+                <button type="button" class="rating-btn" data-val="6">6</button>
+                <button type="button" class="rating-btn" data-val="7">7</button>
+                <button type="button" class="rating-btn" data-val="8">8</button>
+                <button type="button" class="rating-btn" data-val="9">9</button>
+                <button type="button" class="rating-btn" data-val="10">10</button>
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px;">
+              <button class="xp-button xp-button-green" id="btn-quicktag-save" style="padding: 3px 12px; font-size: 11px;">
+                Save Now
+              </button>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- Deck Controls Bar -->
+        <footer class="deck-controls" aria-label="Deck Controls">
+          <button class="xp-button xp-button-red action-btn" id="btn-skip" title="Mark as Skipped [A / ←]">
+            <span>
+              <svg class="xp-icon" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path fill="#FFF" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+              Skip
+            </span>
+            <span class="action-btn-key">[A / ←]</span>
+          </button>
+
+          <button class="xp-button xp-button-blue action-btn" id="btn-backlog" title="Add to Backlog [W / ↑]">
+            <span>
+              <svg class="xp-icon" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path fill="#FFB300" stroke="#CC8800" stroke-width="1" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              Backlog
+            </span>
+            <span class="action-btn-key">[W / ↑]</span>
+          </button>
+
+          <button class="xp-button action-btn" id="btn-flip" title="Flip Card Details [Space / F]">
+            <span>
+              <svg class="xp-icon" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path fill="#333" d="M7 16h10v1H7zm0-8h10v1H7zm-1 4h12v1H6z"/><path fill="none" stroke="#2B579A" stroke-width="2" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
+              Flip
+            </span>
+            <span class="action-btn-key">[Space]</span>
+          </button>
+
+          <button class="xp-button xp-button-green action-btn" id="btn-played" title="Mark as Played [D / →]">
+            <span>
+              <svg class="xp-icon" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path fill="#FFF" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/></svg>
+              Played
+            </span>
+            <span class="action-btn-key">[D / →]</span>
+          </button>
+
+          <button class="xp-button action-btn" id="btn-undo" title="Undo Last Swipe [Ctrl+Z / U]">
+            <span>
+              <svg class="xp-icon" viewBox="0 0 24 24" style="width: 14px; height: 14px;"><path fill="#2B579A" d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg>
+              Undo
+            </span>
+            <span class="action-btn-key">[Ctrl+Z]</span>
+          </button>
+        </footer>
+
+      </div>
+
+      <!-- Right Column: Live Inspector Panel (Visible on Desktop PC) -->
+      <section class="xp-inspector" id="desktop-inspector" aria-label="Desktop Live Inspector">
+        <!-- Rendered in real-time by app.js updateInspector -->
+      </section>
+
+    </div>
 
     <!-- Windows XP Segmented Status Bar -->
     <div class="xp-status-bar" role="status" aria-live="polite">
-      <div class="xp-status-pane grow" id="status-message">Initializing XP-Deck...</div>
+      <div class="xp-status-pane grow" id="status-message">Ready.</div>
       <div class="xp-status-pane" id="status-queue">Cards Left: 0</div>
-      <div class="xp-status-pane" id="status-sound">🔊 Sound: ON</div>
+      <div class="xp-status-pane" id="status-sound">
+        <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#333" d="M3 9v6h4l5 5V4L7 9H3z"/></svg>
+        <span>Sound: ON</span>
+      </div>
     </div>
 
   </main>
+
+  <!-- =========================================================================
+       MODAL: Windows Picture and Fax Viewer (Screenshot Lightbox)
+       ========================================================================= -->
+  <div class="xp-modal-overlay" id="modal-picture-viewer" role="dialog" aria-labelledby="viewer-title">
+    <div class="xp-fax-viewer">
+      <div class="xp-title-bar">
+        <div class="xp-title-content">
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#ECE9D8" stroke="#716F64" d="M3 5h18v14H3z"/><path fill="#2B579A" d="M5 17l4.5-6 3.5 4.5 2.5-3 3.5 4.5z"/></svg>
+          <span id="viewer-title">Windows Picture and Fax Viewer</span>
+        </div>
+        <button class="xp-win-btn close modal-close" aria-label="Close Picture Viewer">✕</button>
+      </div>
+      <div class="xp-fax-viewport">
+        <img class="xp-fax-image" id="viewer-img" src="" alt="Enlarged screenshot">
+      </div>
+      <div class="xp-fax-toolbar">
+        <button class="xp-button" id="viewer-prev">◀ Previous</button>
+        <span id="viewer-counter" style="font-size: 11px; font-weight: bold; min-width: 60px; text-align: center;">1 / 1</span>
+        <button class="xp-button" id="viewer-next">Next ▶</button>
+        <button class="xp-button modal-close" style="margin-left: 12px;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODAL: Catalog Explorer (My Game Archive)
+       ========================================================================= -->
+  <div class="xp-modal-overlay" id="modal-catalog" role="dialog" aria-labelledby="catalog-modal-title">
+    <div class="xp-dialog catalog-dialog">
+      <div class="xp-title-bar">
+        <div class="xp-title-content">
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#2B579A" d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+          <span id="catalog-modal-title">My Game Archive - Catalog Explorer</span>
+        </div>
+        <button class="xp-win-btn close modal-close" aria-label="Close Catalog">✕</button>
+      </div>
+
+      <div class="catalog-toolbar">
+        <div class="catalog-tabs">
+          <button class="catalog-tab active" data-status="all">All</button>
+          <button class="catalog-tab" data-status="played">Played</button>
+          <button class="catalog-tab" data-status="backlog">Backlog</button>
+          <button class="catalog-tab" data-status="skipped">Skipped</button>
+        </div>
+
+        <div style="display: flex; gap: 6px; align-items: center; margin-left: auto;">
+          <input type="text" id="catalog-search" class="xp-select" placeholder="Search title..." style="width: 140px;">
+          
+          <select id="catalog-sort" class="xp-select">
+            <option value="date_desc">Logged: Newest First</option>
+            <option value="date_asc">Logged: Oldest First</option>
+            <option value="title_asc">Title: A-Z</option>
+            <option value="year_desc">Release Year: High to Low</option>
+            <option value="rating_desc">My Rating: 10 to 1</option>
+            <option value="hours_desc">Hours: Most to Least</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="catalog-list-container">
+        <table class="catalog-table">
+          <thead>
+            <tr>
+              <th style="width: 44px;">Cover</th>
+              <th>Title & Genre</th>
+              <th style="text-align: center;">Year</th>
+              <th style="text-align: center;">Status</th>
+              <th style="text-align: center;">Rating</th>
+              <th style="text-align: center;">Hours</th>
+              <th style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="catalog-tbody">
+            <!-- Populated dynamically -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="xp-dialog-footer">
+        <button class="xp-button xp-button-green" onclick="window.app.openModal('modal-export')">
+          Export Archive...
+        </button>
+        <button class="xp-button modal-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODAL: Options / Preferences (Rating Duration, Defaults)
+       ========================================================================= -->
+  <div class="xp-modal-overlay" id="modal-options" role="dialog">
+    <div class="xp-dialog">
+      <div class="xp-title-bar">
+        <div class="xp-title-content">
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#555" d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58-1.92-3.32-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54h-3.84l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96L2.74 8.87l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58 1.92 3.32 2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54h3.84l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96 1.92-3.32-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+          <span>Application Preferences</span>
+        </div>
+        <button class="xp-win-btn close modal-close">✕</button>
+      </div>
+      <div class="xp-dialog-body">
+        
+        <fieldset style="border: 1px solid #716F64; padding: 12px; border-radius: 3px;">
+          <legend style="padding: 0 4px; font-weight: bold; color: #003399;">Played Quick-Tag Behavior</legend>
+          
+          <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 4px;">
+            <label for="setting-rating-duration" style="font-size: 11px;">
+              Auto-Save Timer Duration: <strong id="setting-duration-label" style="color: #003399;">10 seconds</strong>
+            </label>
+            <input type="range" id="setting-rating-duration" min="0" max="60" step="1" value="10" style="width: 100%;">
+            
+            <p style="font-size: 11px; color: #555; line-height: 1.4;">
+              * Set to <strong>0</strong> for Manual Mode (the rating popover will stay open indefinitely until you click Save or swipe the next card).
+            </p>
+          </div>
+        </fieldset>
+
+      </div>
+      <div class="xp-dialog-footer">
+        <button class="xp-button xp-button-green" id="btn-save-settings">Save & Apply</button>
+        <button class="xp-button modal-close">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODAL: Danger Zone (Resets)
+       ========================================================================= -->
+  <div class="xp-modal-overlay" id="modal-danger" role="dialog">
+    <div class="xp-dialog">
+      <div class="xp-title-bar">
+        <div class="xp-title-content">
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#FFCC00" d="M1 21h22L12 2 1 21z"/><path fill="#000" d="M13 18h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+          <span>Danger Zone - Reset Operations</span>
+        </div>
+        <button class="xp-win-btn close modal-close">✕</button>
+      </div>
+      <div class="xp-dialog-body" style="gap: 12px;">
+        <p style="font-size: 12px; line-height: 1.4; color: #991D11; font-weight: bold;">
+          Caution: The operations below modify or wipe your stored data.
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button class="xp-button" id="btn-danger-year" style="padding: 8px; text-align: left; justify-content: flex-start;">
+            <strong>Reset Current Year Swipes</strong>
+            <span style="font-size: 10px; color: #666; margin-left: auto;">(Active year only)</span>
+          </button>
+
+          <button class="xp-button xp-button-red" id="btn-danger-all" style="padding: 8px; text-align: left; justify-content: flex-start;">
+            <strong>Clear All Swiped Records</strong>
+            <span style="font-size: 10px; opacity: 0.85; margin-left: auto;">(Keeps cached games)</span>
+          </button>
+
+          <button class="xp-button xp-button-red" id="btn-danger-factory" style="padding: 8px; text-align: left; justify-content: flex-start; background: #880000; border-color: #550000;">
+            <strong>Factory Reset Everything</strong>
+            <span style="font-size: 10px; opacity: 0.85; margin-left: auto;">(Full wipe & re-seed)</span>
+          </button>
+        </div>
+      </div>
+      <div class="xp-dialog-footer">
+        <button class="xp-button modal-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MODAL: Connect Mobile Phone (LAN Access)
+       ========================================================================= -->
+  <div class="xp-modal-overlay" id="modal-mobile" role="dialog">
+    <div class="xp-dialog">
+      <div class="xp-title-bar">
+        <div class="xp-title-content">
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#FFF" d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zM7 5h10v14H7z"/></svg>
+          <span>Connect Mobile Device (Local LAN)</span>
+        </div>
+        <button class="xp-win-btn close modal-close">✕</button>
+      </div>
+      <div class="xp-dialog-body" style="text-align: center; gap: 10px;">
+        <p style="font-size: 12px;">Scan with your smartphone camera to open XP-Deck on your mobile browser:</p>
+        
+        <div style="display: flex; justify-content: center; padding: 6px;">
+          <img id="mobile-qr-img" src="" alt="Mobile QR Code" style="width: 160px; height: 160px; border: 2px solid #716F64; background: #FFF; padding: 4px;">
+        </div>
+
+        <div class="xp-sunken" style="padding: 8px; font-weight: bold; color: #003399; font-size: 13px;">
+          <a id="mobile-lan-link" href="#" target="_blank" style="color: inherit; text-decoration: none;">
+            <span id="mobile-lan-url">http://192.168.1.148:8000</span>
+          </a>
+        </div>
+
+        <p style="font-size: 11px; color: #555;">Make sure your mobile phone is connected to the same Wi-Fi network.</p>
+      </div>
+      <div class="xp-dialog-footer">
+        <button class="xp-button modal-close">Done</button>
+      </div>
+    </div>
+  </div>
 
   <!-- =========================================================================
        MODAL: Export Center
@@ -190,24 +480,25 @@
     <div class="xp-dialog">
       <div class="xp-title-bar">
         <div class="xp-title-content">
-          <span>💾 Export Catalog Center</span>
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#FFF" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4z"/></svg>
+          <span id="modal-export-title">Export Catalog Center</span>
         </div>
-        <button class="xp-win-btn close modal-close" aria-label="Close Export Modal">✕</button>
+        <button class="xp-win-btn close modal-close">✕</button>
       </div>
       <div class="xp-dialog-body">
         <p style="font-size: 12px; line-height: 1.4;">
-          Export your swiped game archive into any format for external tracking or backup:
+          Export your swiped game archive for backup, spreadsheet analysis, or library import:
         </p>
         
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <a href="/api/export?format=csv" download="xp_deck_games.csv" class="xp-button xp-button-green" style="text-decoration: none; padding: 8px;">
-            📄 Download Clean CSV (Excel / Sheets)
+            Download Clean CSV (Excel / Google Sheets)
           </a>
           <a href="/api/export?format=playnite" download="xp_deck_playnite.csv" class="xp-button xp-button-blue" style="text-decoration: none; padding: 8px;">
-            🎮 Download Playnite-Compatible CSV
+            Download Playnite-Compatible CSV
           </a>
           <a href="/api/export?format=json" download="xp_deck_games.json" class="xp-button" style="text-decoration: none; padding: 8px;">
-            { } Download Structured JSON
+            Download Structured JSON Dump
           </a>
         </div>
       </div>
@@ -224,13 +515,13 @@
     <div class="xp-dialog" style="max-width: 480px;">
       <div class="xp-title-bar">
         <div class="xp-title-content">
-          <span>📊 Lifetime Gaming Statistics</span>
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#FFF" d="M4 14h3v6H4zm5-5h3v11H9zm5-4h3v15h-3zm5 6h3v9h-3z"/></svg>
+          <span id="modal-stats-title">Lifetime Gaming Statistics</span>
         </div>
-        <button class="xp-win-btn close modal-close" aria-label="Close Stats Modal">✕</button>
+        <button class="xp-win-btn close modal-close">✕</button>
       </div>
       <div class="xp-dialog-body">
         
-        <!-- Quick Summary Cards -->
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center;">
           <div class="xp-sunken" style="padding: 6px 2px;">
             <div style="font-size: 10px; color: #2E9C19; font-weight: bold;">PLAYED</div>
@@ -250,7 +541,6 @@
           </div>
         </div>
 
-        <!-- Year-by-year Breakdown Table -->
         <div style="font-weight: bold; font-size: 11px; margin-top: 4px;">Breakdown by Release Year:</div>
         <div class="xp-sunken" style="max-height: 220px; overflow-y: auto; padding: 4px;">
           <table style="width: 100%; border-collapse: collapse; font-size: 11px; text-align: center;">
@@ -284,7 +574,8 @@
     <div class="xp-dialog">
       <div class="xp-title-bar">
         <div class="xp-title-content">
-          <span>⌨️ Keyboard Shortcuts Reference</span>
+          <svg class="xp-icon" viewBox="0 0 24 24"><path fill="#ECE9D8" stroke="#716F64" d="M2 5h20v14H2z"/><rect x="4" y="7" width="2" height="2" fill="#333"/></svg>
+          <span>Keyboard Shortcuts Reference</span>
         </div>
         <button class="xp-win-btn close modal-close">✕</button>
       </div>
@@ -329,18 +620,21 @@
     <div class="xp-dialog">
       <div class="xp-title-bar">
         <div class="xp-title-content">
-          <span>ℹ️ About XP-Deck</span>
+          <svg class="xp-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="#2080DF"/><path fill="#FFF" d="M11 7h2v2h-2zm0 4h2v6h-2z"/></svg>
+          <span>About XP-Deck</span>
         </div>
         <button class="xp-win-btn close modal-close">✕</button>
       </div>
       <div class="xp-dialog-body" style="font-size: 12px; line-height: 1.5; text-align: center;">
-        <div style="font-size: 32px; margin-bottom: 6px;">🎮</div>
+        <div style="font-size: 32px; margin-bottom: 6px;">
+          <svg style="width: 42px; height: 42px;" viewBox="0 0 24 24"><path fill="#2E62CD" d="M19 6H5c-2.2 0-4 1.8-4 4v4c0 2.2 1.8 4 4 4h14c2.2 0 4-1.8 4-4v-4c0-2.2-1.8-4-4-4z"/><circle cx="6" cy="12" r="3" fill="#D4D0C8"/><circle cx="16" cy="11" r="1.2" fill="#D13526"/><circle cx="18" cy="13" r="1.2" fill="#42B72A"/><circle cx="16" cy="15" r="1.2" fill="#EAB308"/><circle cx="14" cy="13" r="1.2" fill="#3B82F6"/></svg>
+        </div>
         <div style="font-weight: bold; font-size: 14px; color: #003399;">XP-Deck v1.0 (Luna Edition)</div>
         <p style="color: #666666; font-size: 11px;">Personal Lifetime Video Game Archive & Swiper</p>
         <div class="xp-sunken" style="margin-top: 10px; padding: 10px; text-align: left; font-size: 11px;">
           <p>• <strong>Backend:</strong> FastAPI, SQLite3, Twitch OAuth2 / IGDB API v4</p>
-          <p>• <strong>Frontend:</strong> Vanilla HTML5/CSS3/JS, PointerEvents Physics</p>
-          <p>• <strong>Theme:</strong> Authentic Windows XP (Luna Blue)</p>
+          <p>• <strong>Frontend:</strong> Vanilla HTML5/CSS3/JS, Dual PC/Mobile Layout</p>
+          <p>• <strong>Theme:</strong> Authentic Windows XP (Luna Blue, Zero Emojis)</p>
           <p>• <strong>Export:</strong> Clean CSV, JSON, Playnite compatible</p>
         </div>
       </div>
@@ -351,6 +645,7 @@
   </div>
 
   <!-- Scripts -->
+  <script src="/static/js/icons.js"></script>
   <script src="/static/js/api.js"></script>
   <script src="/static/js/gestures.js"></script>
   <script src="/static/js/shortcuts.js"></script>

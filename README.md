@@ -4,7 +4,7 @@
 
 ---
 
-## 🎮 Features
+## Features
 
 * **Windows XP (Luna) Design System:** Classic blue title bar gradients, beveled outset/inset frames, segmented green progress bars, retro menus, and status bar.
 * **3D Card Flip Details:** Tap any card or press `Space`/`F` to flip it in 3D, revealing full game synopses, high-res screenshots, platforms, genres, and IGDB ratings.
@@ -27,70 +27,84 @@
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Prerequisites
+
 * Python 3.10 or higher
 * Git
 
 ### 2. Installation
+
 Clone or download the repository:
+
 ```bash
 git clone https://github.com/NatusAnima/xp-deck.git
 cd xp-deck
 ```
 
 Install backend dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 3. Configure Credentials
+
 Copy `.env.example` to `.env`:
+
 ```bash
 cp .env.example .env
 ```
+
 Edit `.env` with your Twitch Developer credentials:
+
 ```env
 TWITCH_CLIENT_ID=your_twitch_client_id_here
 TWITCH_CLIENT_SECRET=your_twitch_client_secret_here
 HOST=0.0.0.0
 PORT=8000
 ```
+
 *(Get free credentials in 2 minutes at [dev.twitch.tv/console](https://dev.twitch.tv/console).)*
 
 ### 4. Run XP-Deck
+
 ```bash
 python backend/app.py
 ```
+
 Or with Uvicorn directly:
+
 ```bash
 uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Open your browser and navigate to:
+
 ```
 http://localhost:8000
 ```
+
 On mobile devices on the same Wi-Fi network, navigate to `http://<your-computer-ip>:8000`.
 
 ---
 
-## ⌨️ Desktop Shortcuts
+## Desktop Shortcuts
 
-| Key | Action |
-| --- | --- |
-| `D` or `→` | Mark as **Played** |
-| `A` or `←` | Mark as **Skipped** |
-| `W` or `↑` | Add to **Active Backlog** |
+| Key                           | Action                                                   |
+| ----------------------------- | -------------------------------------------------------- |
+| `D` or `→`               | Mark as**Played**                                  |
+| `A` or `←`               | Mark as**Skipped**                                 |
+| `W` or `↑`               | Add to**Active Backlog**                           |
 | `Space` / `F` / `Enter` | **Flip Card** (view synopsis & screenshot gallery) |
-| `Ctrl+Z` or `U` | **Undo** last swipe |
-| `1` – `9` | Select rating during quick-tag popover |
-| `Escape` | Close dialogs and popovers |
+| `Ctrl+Z` or `U`           | **Undo** last swipe                                |
+| `1` – `9`                | Select rating during quick-tag popover                   |
+| `Escape`                    | Close dialogs and popovers                               |
 
 ---
 
-## 📁 Directory Structure
+## Directory Structure
 
 ```text
 xp-deck/
@@ -121,7 +135,7 @@ xp-deck/
 
 ---
 
-## 💾 Database Schema
+## Database Schema
 
 ```sql
 CREATE TABLE IF NOT EXISTS cached_games (
@@ -158,5 +172,6 @@ CREATE TABLE IF NOT EXISTS swipe_history (
 
 ---
 
-## 📄 License
+## License
+
 MIT License. Created with nostalgic appreciation for Windows XP and video game history.

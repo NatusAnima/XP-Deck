@@ -23,7 +23,9 @@ from .db import (
     record_swipe,
     undo_last_swipe,
     get_stats,
-    get_all_swiped_records
+    get_all_swiped_records,
+    get_all_settings,
+    set_setting
 )
 from .igdb_client import igdb_client
 from .export_service import export_clean_csv, export_json, export_playnite_csv
@@ -69,44 +71,89 @@ class SwipeRequest(BaseModel):
     hours_played: Optional[int] = None
     user_rating: Optional[int] = Field(None, ge=1, le=10)
 
+class CatalogUpdateRequest(BaseModel):
+    status: str = Field(..., description="Must be 'played', 'skipped', or 'backlog'")
+    platform_played: Optional[str] = None
+    hours_played: Optional[int] = None
+    user_rating: Optional[int] = Field(None, ge=1, le=10)
+
+class ResetRequest(BaseModel):
+    scope: str = Field(..., description="'year', 'all_swipes', or 'factory'")
+    year: Optional[int] = None
+
+class SettingsUpdateRequest(BaseModel):
+    rating_duration_seconds: int = Field(10, ge=0, le=120)
+
 # Endpoints
 @app.get("/api/status")
 async def get_system_status():
     """Return backend status, database info, and IGDB credentials status."""
     has_keys = has_twitch_credentials()
     stats = get_stats()
+    settings = get_all_settings()
     return {
         "status": "online",
         "has_twitch_credentials": has_keys,
         "database": str(DATABASE_PATH),
         "total_swiped": stats["total_swipes"],
-        "counts": stats["status_counts"]
+        "counts": stats["status_counts"],
+        "settings": settings
     }
+
+@app.get("/api/network-info")
+async def get_network_info():
+    """Return host local IP and mobile LAN access URL."""
+    import socket
+    lan_ip = "127.0.0.1"
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+    
+    return {
+        "lan_ip": lan_ip,
+        "port": PORT,
+        "lan_url": f"http://{lan_ip}:{PORT}"
+    }
+
+@app.get("/api/settings")
+async def get_settings():
+    """Return current user settings."""
+    return get_all_settings()
+
+@app.post("/api/settings")
+async def update_settings(payload: SettingsUpdateRequest):
+    """Update user settings such as rating popover duration."""
+    set_setting("rating_duration_seconds", str(payload.rating_duration_seconds))
+    return {"success": True, "settings": get_all_settings()}
 
 @app.get("/api/deck")
 async def get_deck(
     year: int = Query(..., ge=1970, le=2030, description="Release year to fetch"),
-    limit: int = Query(30, ge=1, le=100, description="Number of games to return")
+    limit: int = Query(30, ge=1, le=100, description="Number of games to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination")
 ):
     """
     Fetch unswiped games for the selected year.
     Pre-caches from IGDB if local cache has few unswiped items.
     """
-    # 1. Fetch unswiped games currently in database
-    unswiped = get_unswiped_games(year, limit=limit)
+    unswiped = get_unswiped_games(year, limit=limit, offset=offset)
     
-    # 2. If fewer than 10 unswiped games remain and we have Twitch credentials, fetch from IGDB
+    # If fewer than 10 unswiped games exist and we have Twitch credentials, fetch from IGDB
     if len(unswiped) < 10 and has_twitch_credentials():
-        logger.info("Fetching additional games from IGDB for year %d (currently unswiped: %d)...", year, len(unswiped))
-        remote_games = await igdb_client.fetch_top_games_for_year(year, limit=50)
+        logger.info("Fetching additional games from IGDB for year %d (offset %d)...", year, offset)
+        remote_games = await igdb_client.fetch_top_games_for_year(year, limit=50, offset=offset)
         if remote_games:
             upsert_cached_games(remote_games)
-            # Re-query unswiped games after caching
-            unswiped = get_unswiped_games(year, limit=limit)
+            unswiped = get_unswiped_games(year, limit=limit, offset=offset)
 
     return {
         "year": year,
         "count": len(unswiped),
+        "offset": offset,
         "games": unswiped
     }
 
@@ -132,6 +179,64 @@ async def handle_undo():
     if not result:
         return {"success": False, "message": "No swipes to undo"}
     return {"success": True, **result}
+
+# Catalog Explorer Endpoints
+@app.get("/api/catalog")
+async def get_catalog(
+    status: Optional[str] = Query(None, description="Filter by status ('all', 'played', 'backlog', 'skipped')"),
+    search: Optional[str] = Query(None, description="Search by title substring"),
+    sort: str = Query("date_desc", description="Sorting field (date_desc, date_asc, title_asc, year_desc, rating_desc, hours_desc)")
+):
+    """Retrieve cataloged games with search, status filtering, and sorting."""
+    from .db import get_catalog_games
+    games = get_catalog_games(status=status, search=search, sort_by=sort)
+    return {
+        "count": len(games),
+        "games": games
+    }
+
+@app.put("/api/catalog/{igdb_id}")
+async def update_catalog_item(igdb_id: int, payload: CatalogUpdateRequest):
+    """Edit swipe record for a game in the catalog."""
+    from .db import update_swipe_item
+    success = update_swipe_item(
+        igdb_id=igdb_id,
+        status=payload.status,
+        platform_played=payload.platform_played,
+        hours_played=payload.hours_played,
+        user_rating=payload.user_rating
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Swipe record not found")
+    return {"success": True, "igdb_id": igdb_id}
+
+@app.delete("/api/catalog/{igdb_id}")
+async def delete_catalog_item(igdb_id: int):
+    """Delete a swipe record, returning the game back to the unswiped pool."""
+    from .db import delete_swipe_item
+    success = delete_swipe_item(igdb_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Swipe record not found")
+    return {"success": True, "igdb_id": igdb_id, "message": "Swipe removed and game returned to deck"}
+
+# Danger Zone Reset Endpoint
+@app.post("/api/reset")
+async def handle_reset(payload: ResetRequest):
+    """Execute scoped resets."""
+    from .db import reset_year_swipes, reset_all_swipes, factory_reset
+    if payload.scope == "year":
+        if not payload.year:
+            raise HTTPException(status_code=400, detail="Year must be specified for year-scoped reset")
+        deleted = reset_year_swipes(payload.year)
+        return {"success": True, "scope": "year", "year": payload.year, "deleted_swipes": deleted}
+    elif payload.scope == "all_swipes":
+        deleted = reset_all_swipes()
+        return {"success": True, "scope": "all_swipes", "deleted_swipes": deleted}
+    elif payload.scope == "factory":
+        factory_reset()
+        return {"success": True, "scope": "factory", "message": "Factory reset complete"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid reset scope. Choose 'year', 'all_swipes', or 'factory'.")
 
 @app.get("/api/stats")
 async def handle_stats():

@@ -49,11 +49,19 @@ def init_db():
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS user_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_cached_year ON cached_games(release_year);
         CREATE INDEX IF NOT EXISTS idx_cached_rating_count ON cached_games(total_rating_count DESC);
         CREATE INDEX IF NOT EXISTS idx_swipes_status ON user_swipes(status);
         CREATE INDEX IF NOT EXISTS idx_history_id ON swipe_history(history_id DESC);
         """)
+        
+        # Default setting for rating duration if not already set
+        conn.execute("INSERT OR IGNORE INTO user_settings (key, value) VALUES ('rating_duration_seconds', '10')")
     logger.info("Database initialized successfully at %s", DATABASE_PATH)
 
 def upsert_cached_games(games: List[Dict[str, Any]]) -> int:
@@ -127,7 +135,7 @@ def upsert_cached_games(games: List[Dict[str, Any]]) -> int:
             inserted_count += 1
     return inserted_count
 
-def get_unswiped_games(year: int, limit: int = 30) -> List[Dict[str, Any]]:
+def get_unswiped_games(year: int, limit: int = 30, offset: int = 0) -> List[Dict[str, Any]]:
     """Retrieve next unswiped games for a given year sorted by popularity."""
     with get_connection() as conn:
         cursor = conn.execute("""
@@ -136,8 +144,8 @@ def get_unswiped_games(year: int, limit: int = 30) -> List[Dict[str, Any]]:
             LEFT JOIN user_swipes s ON g.igdb_id = s.igdb_id
             WHERE s.igdb_id IS NULL AND g.release_year = ?
             ORDER BY g.total_rating_count DESC, g.rating DESC
-            LIMIT ?
-        """, (year, limit))
+            LIMIT ? OFFSET ?
+        """, (year, limit, offset))
         
         results = []
         for row in cursor.fetchall():
@@ -309,6 +317,152 @@ def get_all_swiped_records() -> List[Dict[str, Any]]:
             ORDER BY s.created_at DESC
         """)
         return [dict(row) for row in cursor.fetchall()]
+
+# =========================================================================
+# User Settings Management
+# =========================================================================
+def get_setting(key: str, default: str = "") -> str:
+    """Retrieve user setting by key."""
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT value FROM user_settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        return row[0] if row else default
+
+def set_setting(key: str, value: str) -> None:
+    """Upsert user setting key and value."""
+    with get_connection() as conn:
+        conn.execute("INSERT OR REPLACE INTO user_settings (key, value) VALUES (?, ?)", (key, str(value)))
+
+def get_all_settings() -> Dict[str, Any]:
+    """Retrieve all user settings as dictionary."""
+    with get_connection() as conn:
+        cursor = conn.execute("SELECT key, value FROM user_settings")
+        settings = {}
+        for row in cursor.fetchall():
+            settings[row["key"]] = row["value"]
+        
+        # Ensure default rating_duration_seconds exists
+        if "rating_duration_seconds" not in settings:
+            settings["rating_duration_seconds"] = "10"
+        return settings
+
+# =========================================================================
+# Catalog Explorer & In-Place Editing
+# =========================================================================
+def get_catalog_games(
+    status: Optional[str] = None, 
+    search: Optional[str] = None, 
+    sort_by: str = "date_desc"
+) -> List[Dict[str, Any]]:
+    """
+    Search and filter catalog of swiped games with flexible sorting:
+    date_desc, date_asc, title_asc, year_desc, rating_desc, hours_desc
+    """
+    query = """
+        SELECT 
+            g.igdb_id,
+            g.title,
+            g.release_year,
+            g.cover_url,
+            g.summary,
+            g.genres,
+            g.platforms,
+            g.total_rating_count,
+            g.rating as igdb_rating,
+            s.status,
+            s.platform_played,
+            s.hours_played,
+            s.user_rating,
+            s.created_at as swiped_at
+        FROM user_swipes s
+        JOIN cached_games g ON s.igdb_id = g.igdb_id
+        WHERE 1=1
+    """
+    params = []
+
+    if status and status.lower() != 'all':
+        query += " AND s.status = ?"
+        params.append(status.lower())
+
+    if search and search.strip():
+        query += " AND g.title LIKE ?"
+        params.append(f"%{search.strip()}%")
+
+    sort_map = {
+        "date_desc": "s.created_at DESC",
+        "date_asc": "s.created_at ASC",
+        "title_asc": "g.title COLLATE NOCASE ASC",
+        "year_desc": "g.release_year DESC, g.title ASC",
+        "rating_desc": "s.user_rating DESC, g.title ASC",
+        "hours_desc": "s.hours_played DESC, g.title ASC"
+    }
+    order_clause = sort_map.get(sort_by, "s.created_at DESC")
+    query += f" ORDER BY {order_clause}"
+
+    with get_connection() as conn:
+        cursor = conn.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
+
+def update_swipe_item(
+    igdb_id: int, 
+    status: str, 
+    platform_played: Optional[str] = None, 
+    hours_played: Optional[int] = None, 
+    user_rating: Optional[int] = None
+) -> bool:
+    """Update swipe record in-place."""
+    if status not in ('played', 'skipped', 'backlog'):
+        raise ValueError("Invalid status")
+
+    with get_connection() as conn:
+        cursor = conn.execute("""
+            UPDATE user_swipes
+            SET status = ?, platform_played = ?, hours_played = ?, user_rating = ?
+            WHERE igdb_id = ?
+        """, (status, platform_played, hours_played, user_rating, igdb_id))
+        return cursor.rowcount > 0
+
+def delete_swipe_item(igdb_id: int) -> bool:
+    """Delete a swipe, restoring the game back to the unswiped pool."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM swipe_history WHERE igdb_id = ?", (igdb_id,))
+        cursor = conn.execute("DELETE FROM user_swipes WHERE igdb_id = ?", (igdb_id,))
+        return cursor.rowcount > 0
+
+# =========================================================================
+# Danger Zone Resets
+# =========================================================================
+def reset_year_swipes(year: int) -> int:
+    """Delete swipes for a specific release year."""
+    with get_connection() as conn:
+        cursor = conn.execute("""
+            DELETE FROM user_swipes 
+            WHERE igdb_id IN (SELECT igdb_id FROM cached_games WHERE release_year = ?)
+        """, (year,))
+        deleted_count = cursor.rowcount
+        conn.execute("""
+            DELETE FROM swipe_history 
+            WHERE igdb_id IN (SELECT igdb_id FROM cached_games WHERE release_year = ?)
+        """, (year,))
+        return deleted_count
+
+def reset_all_swipes() -> int:
+    """Clear all user swipes and swipe history, keeping cached games."""
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM user_swipes")
+        deleted_count = cursor.rowcount
+        conn.execute("DELETE FROM swipe_history")
+        return deleted_count
+
+def factory_reset() -> None:
+    """Drop and re-initialize database with seed catalog."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM swipe_history")
+        conn.execute("DELETE FROM user_swipes")
+        conn.execute("DELETE FROM cached_games")
+        conn.execute("DELETE FROM user_settings")
+    init_db()
+    seed_database_if_empty()
 
 # Curated seed games spanning gaming history for immediate offline demo & testing
 SEED_GAMES = [
