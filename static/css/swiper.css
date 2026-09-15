@@ -1,0 +1,518 @@
+/* ==========================================================================
+   SWIPER.CSS: Card Deck Physics, 3D Flips, Gesture Badges & Quick-Tag
+   ========================================================================== */
+
+.deck-container {
+  position: relative;
+  width: 100%;
+  height: 480px;
+  background: #2A2E33;
+  background-image: 
+    radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 0);
+  background-size: 16px 16px;
+  border: 2px inset #7F9DB9;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  perspective: 1000px;
+  touch-action: none; /* Crucial for custom pointer gesture handling */
+}
+
+/* Empty / End of Queue State */
+.deck-empty {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+  color: #FFFFFF;
+  padding: 24px;
+  z-index: 0;
+}
+
+.deck-empty.visible {
+  display: flex;
+}
+
+.deck-empty-icon {
+  font-size: 42px;
+}
+
+.deck-empty h3 {
+  font-size: 16px;
+  color: #FFDE59;
+  text-shadow: 1px 1px 2px #000000;
+}
+
+.deck-empty p {
+  font-size: 12px;
+  color: #CCCCCC;
+  max-width: 280px;
+}
+
+/* ==========================================================================
+   Game Card Item
+   ========================================================================== */
+.game-card {
+  position: absolute;
+  width: 88%;
+  max-width: 360px;
+  height: 440px;
+  border-radius: 8px;
+  background: #1A1A1A;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  cursor: grab;
+  user-select: none;
+  transform-origin: 50% 100%;
+  transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1), opacity 0.25s ease;
+  will-change: transform, opacity;
+}
+
+.game-card:active {
+  cursor: grabbing;
+}
+
+/* 5-Card Stack Buffering Offsets */
+.game-card[data-index="0"] {
+  z-index: 5;
+  transform: translateY(0px) scale(1);
+  opacity: 1;
+}
+
+.game-card[data-index="1"] {
+  z-index: 4;
+  transform: translateY(8px) scale(0.96);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.game-card[data-index="2"] {
+  z-index: 3;
+  transform: translateY(16px) scale(0.92);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.game-card[data-index="3"] {
+  z-index: 2;
+  transform: translateY(24px) scale(0.88);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.game-card[data-index="4"] {
+  z-index: 1;
+  transform: translateY(32px) scale(0.84);
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Smooth fly-off animations */
+.game-card.fly-right {
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.3s ease !important;
+  transform: translate(140vw, -20px) rotate(35deg) !important;
+  opacity: 0 !important;
+}
+
+.game-card.fly-left {
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.3s ease !important;
+  transform: translate(-140vw, -20px) rotate(-35deg) !important;
+  opacity: 0 !important;
+}
+
+.game-card.fly-up {
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.3s ease !important;
+  transform: translate(0, -140vh) rotate(5deg) !important;
+  opacity: 0 !important;
+}
+
+/* ==========================================================================
+   3D Card Flip Implementation
+   ========================================================================== */
+.card-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  transform-style: preserve-3d;
+  transition: transform 0.45s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.game-card.flipped .card-inner {
+  transform: rotateY(180deg);
+}
+
+.card-front, .card-back {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Card Front Styling */
+.card-front {
+  background: #111111;
+}
+
+.card-cover {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.card-front-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg, 
+    rgba(0, 0, 0, 0.15) 0%, 
+    transparent 35%, 
+    rgba(0, 0, 0, 0.6) 65%, 
+    rgba(0, 0, 0, 0.95) 100%
+  );
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 16px;
+  color: #FFFFFF;
+}
+
+.card-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.card-pill {
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.pill-rating {
+  background: #FFB300;
+  color: #000000;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.pill-year {
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(4px);
+  color: #FFFFFF;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.pill-genres {
+  background: rgba(0, 0, 0, 0.5);
+  color: #DDDDDD;
+  font-size: 10px;
+}
+
+.card-title {
+  font-size: 20px;
+  font-weight: bold;
+  line-height: 1.25;
+  margin-bottom: 4px;
+  text-shadow: 1px 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+.card-platforms {
+  font-size: 11px;
+  color: #A0C4FF;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-hint {
+  margin-top: 8px;
+  font-size: 10px;
+  color: #AAAAAA;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Card Back Styling */
+.card-back {
+  background: #ECE9D8;
+  color: #000000;
+  transform: rotateY(180deg);
+  border: 2px solid #0055EA;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-back-header {
+  background: linear-gradient(180deg, #0058EE 0%, #0030A5 100%);
+  color: #FFFFFF;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.card-back-close {
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 14px;
+}
+
+.card-back-content {
+  padding: 12px;
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card-back-summary {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #222222;
+  background: #FFFFFF;
+  border: 1px inset #D4D0C8;
+  padding: 8px;
+  border-radius: 2px;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.card-back-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.meta-box {
+  background: #F4F2E8;
+  border: 1px solid #D0CCBA;
+  padding: 5px 8px;
+  border-radius: 2px;
+}
+
+.meta-box strong {
+  display: block;
+  color: #003399;
+  margin-bottom: 2px;
+}
+
+.screenshots-title {
+  font-size: 11px;
+  font-weight: bold;
+  color: #333333;
+}
+
+.card-back-screenshots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.screenshot-thumb {
+  width: 100%;
+  height: 60px;
+  object-fit: cover;
+  border: 1px solid #7F9DB9;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.screenshot-thumb:hover {
+  transform: scale(1.05);
+}
+
+/* ==========================================================================
+   Swipe Stamp Badges (Overlay during drag)
+   ========================================================================== */
+.stamp-badge {
+  position: absolute;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  transition: opacity 0.1s ease;
+}
+
+.stamp-played {
+  top: 30px;
+  right: 25px;
+  border: 4px solid #42B72A;
+  color: #42B72A;
+  background: rgba(0, 0, 0, 0.4);
+  transform: rotate(18deg);
+  text-shadow: 0 0 8px rgba(66, 183, 42, 0.8);
+  box-shadow: 0 0 16px rgba(66, 183, 42, 0.5);
+}
+
+.stamp-skipped {
+  top: 30px;
+  left: 25px;
+  border: 4px solid #E81123;
+  color: #E81123;
+  background: rgba(0, 0, 0, 0.4);
+  transform: rotate(-18deg);
+  text-shadow: 0 0 8px rgba(232, 17, 35, 0.8);
+  box-shadow: 0 0 16px rgba(232, 17, 35, 0.5);
+}
+
+.stamp-backlog {
+  top: 35px;
+  left: 50%;
+  transform: translateX(-50%) rotate(0deg);
+  border: 4px solid #3593FF;
+  color: #3593FF;
+  background: rgba(0, 0, 0, 0.4);
+  text-shadow: 0 0 8px rgba(53, 147, 255, 0.8);
+  box-shadow: 0 0 16px rgba(53, 147, 255, 0.5);
+}
+
+/* ==========================================================================
+   Quick-Tag Popover (Appears on Played)
+   ========================================================================== */
+.quicktag-popover {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  background: #ECE9D8;
+  border: 2px solid #0055EA;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  padding: 10px 14px;
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  animation: slideUpPop 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.quicktag-popover.visible {
+  display: flex;
+}
+
+@keyframes slideUpPop {
+  0% { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.quicktag-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: bold;
+  font-size: 12px;
+  color: #003399;
+}
+
+.quicktag-timer {
+  font-size: 11px;
+  color: #666666;
+}
+
+.quicktag-timer-bar {
+  width: 100%;
+  height: 3px;
+  background: #D4D0C8;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.quicktag-timer-fill {
+  height: 100%;
+  width: 100%;
+  background: #42B72A;
+  transition: width 2s linear;
+}
+
+.quicktag-fields {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.quicktag-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quicktag-field label {
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.quicktag-rating-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.rating-btn {
+  flex: 1;
+  height: 24px;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 0;
+  border-radius: 2px;
+  border: 1px solid #7F9DB9;
+  background: #FFFFFF;
+  cursor: pointer;
+}
+
+.rating-btn.active {
+  background: #FFB300;
+  border-color: #CC8800;
+  color: #000000;
+}
+
+/* ==========================================================================
+   Deck Action Controls Bar
+   ========================================================================== */
+.deck-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--xp-bg);
+  border-top: 1px solid #FFFFFF;
+  gap: 6px;
+}
+
+.action-btn {
+  flex: 1;
+  height: 38px;
+  font-size: 12px;
+  font-weight: bold;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.action-btn-key {
+  font-size: 9px;
+  opacity: 0.75;
+}
