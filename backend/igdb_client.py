@@ -16,6 +16,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 IGDB_GAMES_URL = "https://api.igdb.com/v4/games"
+IGDB_COUNT_URL = "https://api.igdb.com/v4/games/count"
 IMAGE_URL = "https://images.igdb.com/igdb/image/upload/t_1080p/{}.jpg"
 
 # Main Game, Remake, Remaster, Expanded Game - filters out shovelware and DLC.
@@ -153,16 +154,43 @@ async def _query(body: str) -> List[Dict[str, Any]]:
     return []
 
 
-async def fetch_top_games_for_year(year: int, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-    """Fetch the most-reviewed games released in a year, newest cursor first."""
+def _year_filter(year: int) -> str:
+    """The where-clause shared by the deck query and the year count, so the
+    total always describes exactly the set the deck draws from."""
     start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp())
     end = int(datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc).timestamp())
+    return (f"where first_release_date >= {start} & first_release_date <= {end}"
+            f" & (game_type = {GAME_TYPES} | game_type = null)"
+            " & version_parent = null;")
 
+
+async def count_games_for_year(year: int) -> Optional[int]:
+    """How many games IGDB lists for a year. None if it could not be fetched."""
+    token = await _get_token()
+    if not token:
+        return None
+
+    headers = {
+        "Client-ID": config.TWITCH_CLIENT_ID,
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    try:
+        resp = await _client.post(IGDB_COUNT_URL, headers=headers, content=_year_filter(year))
+        resp.raise_for_status()
+        total = resp.json().get("count")
+        logger.info("IGDB lists %s games for %d", total, year)
+        return total
+    except (httpx.HTTPError, ValueError) as e:
+        logger.error("IGDB count failed for %d: %s", year, e)
+        return None
+
+
+async def fetch_top_games_for_year(year: int, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    """Fetch the most-reviewed games released in a year, newest cursor first."""
     games = await _query(f"""
     {FIELDS}
-    where first_release_date >= {start} & first_release_date <= {end}
-          & (game_type = {GAME_TYPES} | game_type = null)
-          & version_parent = null;
+    {_year_filter(year)}
     sort total_rating_count desc;
     limit {limit};
     offset {offset};

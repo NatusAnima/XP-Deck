@@ -26,7 +26,12 @@ const PAGE_SIZE = 30;
 // out at 30 and claims "Year Complete!" while the server still has unswiped
 // games cached - and the progress bar sits still through the whole page.
 const REFILL_AT = 8;
-const STORE = { year: 'xp_year', sound: 'xp_sound_enabled', duration: 'xp_rating_duration' };
+const STORE = {
+  year: 'xp_year',
+  sound: 'xp_sound_enabled',
+  duration: 'xp_rating_duration',
+  quickTag: 'xp_quicktag_enabled'
+};
 
 class XPDeckApp {
   constructor() {
@@ -37,10 +42,12 @@ class XPDeckApp {
     this.mode = 'year';           // 'year' | 'search'
     this.hasMoreForYear = true;
     this.igdbOffset = 0;
+    this.yearTotal = null;   // how many games IGDB lists for the selected year
     this.hasCredentials = true;
 
     this.currentYear = this.readStoredYear();
     this.ratingDurationSeconds = 10;
+    this.quickTagEnabled = true;
     this.quickTagActive = false;
     this.quickTagTimer = null;
     this.pendingPlayedGame = null;
@@ -134,20 +141,45 @@ class XPDeckApp {
   // Settings
   // =========================================================================
   async loadSettings() {
-    let raw = null;
+    let duration = null;
+    let quickTag = null;
     try {
-      raw = (await API.getSettings()).rating_duration_seconds;
+      const s = await API.getSettings();
+      duration = s.rating_duration_seconds;
+      quickTag = s.quick_tag_enabled;
     } catch {
-      raw = localStorage.getItem(STORE.duration);
+      duration = localStorage.getItem(STORE.duration);
+      quickTag = localStorage.getItem(STORE.quickTag);
     }
 
     // A malformed value used to yield NaN, and setTimeout(fn, NaN) fires
     // immediately - auto-saving the rating before it could be entered.
-    const parsed = parseInt(raw, 10);
+    const parsed = parseInt(duration, 10);
     this.ratingDurationSeconds = Number.isFinite(parsed) ? Math.max(0, parsed) : 10;
+    // absent means "never set", which is the default: on
+    this.quickTagEnabled = quickTag === null || quickTag === undefined
+      ? true
+      : !['0', 'false'].includes(String(quickTag));
 
     $('setting-rating-duration').value = this.ratingDurationSeconds;
+    $('setting-quicktag-enabled').checked = this.quickTagEnabled;
     this.updateDurationLabel(this.ratingDurationSeconds);
+    this.updateQuickTagToggleUI(this.quickTagEnabled);
+  }
+
+  /** Reset the form to the saved values, so Cancel really cancels. */
+  openPreferences() {
+    $('setting-rating-duration').value = this.ratingDurationSeconds;
+    $('setting-quicktag-enabled').checked = this.quickTagEnabled;
+    this.updateDurationLabel(this.ratingDurationSeconds);
+    this.updateQuickTagToggleUI(this.quickTagEnabled);
+    this.openModal('modal-options');
+  }
+
+  /** The timer only means anything while the popover is in play. */
+  updateQuickTagToggleUI(enabled) {
+    $('setting-duration-group').classList.toggle('disabled', !enabled);
+    $('setting-rating-duration').disabled = !enabled;
   }
 
   updateDurationLabel(seconds) {
@@ -155,14 +187,25 @@ class XPDeckApp {
       seconds === 0 ? 'Manual (no auto-save)' : `${seconds} seconds`;
   }
 
-  async saveSettings(duration) {
+  async saveSettings(duration, quickTagEnabled) {
+    // A popover already on screen would be orphaned by turning the feature
+    // off, so close it out first - keeping whatever was entered.
+    if (!quickTagEnabled && this.pendingPlayedGame) this.finishQuickTag(true);
+
     this.ratingDurationSeconds = duration;
+    this.quickTagEnabled = quickTagEnabled;
     localStorage.setItem(STORE.duration, String(duration));
+    localStorage.setItem(STORE.quickTag, quickTagEnabled ? '1' : '0');
+
+    const summary = quickTagEnabled
+      ? `Quick-tag on, auto-saving after ${duration}s.`
+      : 'Quick-tag off - Played swipes save straight away.';
+
     try {
-      await API.updateSettings(duration);
-      this.setStatus(`Auto-save timer set to ${duration}s.`);
+      await API.updateSettings(duration, quickTagEnabled);
+      this.setStatus(summary);
     } catch {
-      this.setStatus(`Saved locally (${duration}s); backend unreachable.`);
+      this.setStatus(`${summary} (saved on this device only)`);
     }
   }
 
@@ -274,6 +317,7 @@ class XPDeckApp {
       this.hasMoreForYear = data.has_more;
       this.igdbOffset = data.igdb_offset;
       this.hasCredentials = data.has_credentials;
+      this.yearTotal = data.year_total ?? null;
 
       // A deck fetch can pull a fresh page from IGDB, which grows total_cached
       // for this year - so the progress denominator is stale until we re-read
@@ -497,7 +541,8 @@ class XPDeckApp {
     this.renderedCards.shift();
 
     if (game) {
-      if (action === 'played') this.openQuickTag(game);
+      // With quick-tag switched off, a Played swipe saves in one motion.
+      if (action === 'played' && this.quickTagEnabled) this.openQuickTag(game);
       else this.commitSwipe(game, action);
     }
 
@@ -812,20 +857,29 @@ class XPDeckApp {
   }
 
   /**
-   * Show "reviewed / cached" rather than a percentage. The cache grows by a
-   * page every time a year runs dry, so a percentage of it could fall while
-   * the user was actively reviewing.
+   * Progress is measured against how many games IGDB lists for the year, so
+   * the denominator is fixed. It falls back to the local cache size when the
+   * total is not known yet (no credentials, or the count call failed) - that
+   * denominator grows as pages are fetched, which is why it is only a
+   * fallback.
    */
   updateProgress() {
     const year = this.stats?.years?.[this.currentYear];
     const done = year?.total_swiped ?? 0;
-    const total = year?.total_cached ?? 0;
+    const known = this.mode === 'year' && this.yearTotal;
+    const total = known ? this.yearTotal : (year?.total_cached ?? 0);
     const pct = total ? Math.min(100, (done / total) * 100) : 0;
 
     $('xp-progress-bar').style.width = `${pct}%`;
-    $('xp-progress-badge').textContent = `${done} / ${total}`;
-    $('xp-progress').setAttribute('aria-valuenow', Math.round(pct));
-    $('xp-progress').setAttribute('aria-valuetext', `${done} of ${total} games reviewed`);
+    $('xp-progress-badge').textContent =
+      `${done.toLocaleString()} / ${total.toLocaleString()}`;
+
+    const bar = $('xp-progress');
+    bar.setAttribute('aria-valuenow', Math.round(pct));
+    bar.setAttribute('aria-valuetext', `${done} of ${total} games reviewed`);
+    bar.parentElement.title = known
+      ? `${done.toLocaleString()} of the ${total.toLocaleString()} games IGDB lists for ${this.currentYear}`
+      : `${done.toLocaleString()} of ${total.toLocaleString()} games cached locally`;
   }
 
   renderStatsModal() {
@@ -968,7 +1022,7 @@ class XPDeckApp {
       'menu-connect-mobile': () => this.openMobileModal(),
       'menu-sound-toggle': () => this.toggleSound(),
       'menu-setup': () => this.openSetup(),
-      'menu-options': () => this.openModal('modal-options'),
+      'menu-options': () => this.openPreferences(),
       'menu-shortcuts': () => this.openModal('modal-shortcuts'),
       'menu-about': () => this.openModal('modal-about')
     };
@@ -1031,9 +1085,12 @@ class XPDeckApp {
     on('btn-quicktag-discard', 'click', () => this.finishQuickTag(false));
 
     const duration = $('setting-rating-duration');
+    const quickTag = $('setting-quicktag-enabled');
     duration.addEventListener('input', (e) => this.updateDurationLabel(Number(e.target.value)));
+    quickTag.addEventListener('change', (e) => this.updateQuickTagToggleUI(e.target.checked));
+
     on('btn-save-settings', 'click', () => {
-      this.saveSettings(Number(duration.value));
+      this.saveSettings(Number(duration.value), quickTag.checked);
       this.closeModals();
     });
 

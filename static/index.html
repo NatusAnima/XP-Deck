@@ -502,14 +502,25 @@
         <fieldset class="xp-fieldset">
           <legend>Played Quick-Tag Behavior</legend>
           <div class="field-stack">
-            <label for="setting-rating-duration">
-              Auto-Save Timer Duration: <strong id="setting-duration-label" class="accent">10 seconds</strong>
+            <label class="check-row" for="setting-quicktag-enabled">
+              <input type="checkbox" id="setting-quicktag-enabled" checked>
+              <span>Ask for platform, hours and rating after a Played swipe</span>
             </label>
-            <input type="range" id="setting-rating-duration" min="0" max="120" step="1" value="10" class="full-width">
             <p class="field-note">
-              Set to <strong>0</strong> for Manual Mode - the rating popover stays open until you
-              click Save or swipe the next card.
+              Turn this off to log games as played in one swipe, with no popover.
+              You can always fill in the details later from the Catalog.
             </p>
+
+            <div class="sub-setting" id="setting-duration-group">
+              <label for="setting-rating-duration">
+                Auto-Save Timer Duration: <strong id="setting-duration-label" class="accent">10 seconds</strong>
+              </label>
+              <input type="range" id="setting-rating-duration" min="0" max="120" step="1" value="10" class="full-width">
+              <p class="field-note">
+                Set to <strong>0</strong> for Manual Mode - the popover stays open until you
+                click Save. Touching the popover always stops the countdown.
+              </p>
+            </div>
           </div>
         </fieldset>
       </div>

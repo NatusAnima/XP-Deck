@@ -50,9 +50,10 @@ const API = {
     return request('/api/settings');
   },
 
-  updateSettings(ratingDurationSeconds) {
+  updateSettings(ratingDurationSeconds, quickTagEnabled) {
     return request('/api/settings', json('POST', {
-      rating_duration_seconds: Number(ratingDurationSeconds)
+      rating_duration_seconds: Number(ratingDurationSeconds),
+      quick_tag_enabled: Boolean(quickTagEnabled)
     }));
   },
 

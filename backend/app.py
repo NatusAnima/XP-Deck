@@ -21,6 +21,8 @@ from .db import (
     record_swipe,
     undo_last_swipe,
     get_stats,
+    get_year_total,
+    set_year_total,
     get_all_settings,
     set_setting,
     get_catalog_games,
@@ -89,6 +91,7 @@ class ResetRequest(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     rating_duration_seconds: int = Field(..., ge=0, le=120)
+    quick_tag_enabled: bool = True
 
 
 class SetupRequest(BaseModel):
@@ -170,8 +173,10 @@ async def get_settings():
 
 @app.post("/api/settings")
 async def update_settings(payload: SettingsUpdateRequest):
-    """Update the quick-tag auto-save duration."""
+    """Update quick-tag preferences."""
     set_setting("rating_duration_seconds", str(payload.rating_duration_seconds))
+    # stored as "1"/"0": user_settings.value is TEXT
+    set_setting("quick_tag_enabled", "1" if payload.quick_tag_enabled else "0")
     return {"success": True, "settings": get_all_settings()}
 
 
@@ -209,11 +214,21 @@ async def get_deck(
         # nothing cached and no way to fetch more
         has_more = has_twitch_credentials()
 
+    # How many games exist for this year at all. Fetched once per year and
+    # cached, so the progress denominator stays put instead of growing with
+    # every page pulled from IGDB.
+    year_total = get_year_total(year)
+    if year_total is None and has_twitch_credentials():
+        year_total = await igdb_client.count_games_for_year(year)
+        if year_total is not None:
+            set_year_total(year, year_total)
+
     return {
         "games": games,
         "has_more": has_more,
         "igdb_offset": next_igdb_offset,
         "has_credentials": has_twitch_credentials(),
+        "year_total": year_total,
     }
 
 

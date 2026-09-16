@@ -88,11 +88,22 @@ def init_db():
             value TEXT
         );
 
+        -- How many games IGDB lists for a release year, so the progress bar has
+        -- a fixed denominator instead of one that grows as pages are fetched.
+        CREATE TABLE IF NOT EXISTS year_totals (
+            year INTEGER PRIMARY KEY,
+            total INTEGER NOT NULL,
+            fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         CREATE INDEX IF NOT EXISTS idx_cached_year ON cached_games(release_year);
         CREATE INDEX IF NOT EXISTS idx_history_id ON swipe_history(history_id DESC);
         """)
-        conn.execute(
-            "INSERT OR IGNORE INTO user_settings (key, value) VALUES ('rating_duration_seconds', '10')"
+        # INSERT OR IGNORE, so an existing database picks up new defaults
+        # without overwriting whatever the user already chose.
+        conn.executemany(
+            "INSERT OR IGNORE INTO user_settings (key, value) VALUES (?, ?)",
+            [("rating_duration_seconds", "10"), ("quick_tag_enabled", "1")]
         )
         _run_migrations(conn)
     logger.info("Database ready at %s", DATABASE_PATH)
@@ -324,7 +335,8 @@ def get_stats() -> Dict[str, Any]:
                 SUM(s.status = 'played') AS played,
                 SUM(s.status = 'skipped') AS skipped,
                 SUM(s.status = 'backlog') AS backlog,
-                ROUND(100.0 * COUNT(s.igdb_id) / COUNT(g.igdb_id), 1) AS percentage_reviewed
+                ROUND(100.0 * COUNT(s.igdb_id) / COUNT(g.igdb_id), 1) AS percentage_reviewed,
+                (SELECT total FROM year_totals t WHERE t.year = g.release_year) AS total_available
             FROM cached_games g
             LEFT JOIN user_swipes s ON g.igdb_id = s.igdb_id
             WHERE g.release_year IS NOT NULL
@@ -361,6 +373,23 @@ def get_all_settings() -> Dict[str, Any]:
     """Return every user setting as a dict."""
     with closing(get_connection()) as conn:
         return dict(conn.execute("SELECT key, value FROM user_settings").fetchall())
+
+
+def get_year_total(year: int) -> Optional[int]:
+    """Cached count of games IGDB lists for a release year, or None."""
+    with closing(get_connection()) as conn:
+        row = conn.execute("SELECT total FROM year_totals WHERE year = ?", (year,)).fetchone()
+        return row[0] if row else None
+
+
+def set_year_total(year: int, total: int) -> None:
+    """Record the IGDB count for a year."""
+    with closing(get_connection()) as conn, conn:
+        conn.execute("""
+            INSERT INTO year_totals (year, total, fetched_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(year) DO UPDATE SET total=excluded.total, fetched_at=CURRENT_TIMESTAMP
+        """, (year, total))
 
 
 # =========================================================================
