@@ -1,51 +1,63 @@
+import io
 import logging
+import socket
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, Literal
 from fastapi import FastAPI, Query, HTTPException, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+import segno
 
-from .config import (
-    STATIC_DIR, 
-    HOST, 
-    PORT, 
-    has_twitch_credentials,
-    DATABASE_PATH
-)
+from . import igdb_client
+from . import config
+from .config import STATIC_DIR, HOST, PORT, has_twitch_credentials
 from .db import (
     init_db,
-    seed_database_if_empty,
-    get_unswiped_games,
-    count_cached_games_for_year,
     upsert_cached_games,
+    get_unswiped_games,
+    search_cached_games,
+    game_exists,
     record_swipe,
     undo_last_swipe,
     get_stats,
-    get_all_swiped_records,
     get_all_settings,
-    set_setting
+    set_setting,
+    get_catalog_games,
+    update_swipe_item,
+    delete_swipe_item,
+    reset_swipes,
+    factory_reset,
+    SORT_OPTIONS,
 )
-from .igdb_client import igdb_client
 from .export_service import export_clean_csv, export_json, export_playnite_csv
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-)
+# uvicorn configures only the "uvicorn.*" loggers and leaves root without a
+# handler, so app logs below WARNING would otherwise vanish - including the
+# migration notice. basicConfig is a no-op if a handler already exists.
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(message)s")
 logger = logging.getLogger("xpdeck.app")
+
+Status = Literal["played", "skipped", "backlog"]
+
+# Refill the local cache from IGDB when the deck drops below this many cards.
+REFILL_THRESHOLD = 10
+IGDB_PAGE_SIZE = 50
+
+EXPORT_FORMATS = {
+    "csv": (export_clean_csv, "text/csv", "xp_deck_games.csv"),
+    "json": (export_json, "application/json", "xp_deck_games.json"),
+    "playnite": (export_playnite_csv, "text/csv", "xp_deck_playnite.csv"),
+}
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    logger.info("Initializing XP-Deck SQLite Database...")
     init_db()
-    seed_database_if_empty()
-    logger.info("XP-Deck Backend ready on http://%s:%s", HOST, PORT)
+    logger.info("XP-Deck ready on http://%s:%s", HOST, PORT)
     yield
-    # Shutdown
-    logger.info("XP-Deck shutting down...")
+    await igdb_client.close_client()
+
 
 app = FastAPI(
     title="XP-Deck API",
@@ -54,235 +66,277 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware for local development / LAN flexibility
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS middleware: the frontend is served from this same origin, so every
+# call is same-origin. Adding permissive CORS would expose the unauthenticated
+# destructive endpoints (/api/reset) to any page the user happens to visit.
 
-# Pydantic Schemas
-class SwipeRequest(BaseModel):
+
+class SwipeFields(BaseModel):
+    status: Status
+    platform_played: Optional[str] = None
+    hours_played: Optional[int] = Field(None, ge=0, le=99999)
+    user_rating: Optional[int] = Field(None, ge=1, le=10)
+
+
+class SwipeRequest(SwipeFields):
     igdb_id: int
-    status: str = Field(..., description="Must be 'played', 'skipped', or 'backlog'")
-    platform_played: Optional[str] = None
-    hours_played: Optional[int] = None
-    user_rating: Optional[int] = Field(None, ge=1, le=10)
 
-class CatalogUpdateRequest(BaseModel):
-    status: str = Field(..., description="Must be 'played', 'skipped', or 'backlog'")
-    platform_played: Optional[str] = None
-    hours_played: Optional[int] = None
-    user_rating: Optional[int] = Field(None, ge=1, le=10)
 
 class ResetRequest(BaseModel):
-    scope: str = Field(..., description="'year', 'all_swipes', or 'factory'")
+    scope: Literal["year", "all_swipes", "factory"]
     year: Optional[int] = None
 
-class SettingsUpdateRequest(BaseModel):
-    rating_duration_seconds: int = Field(10, ge=0, le=120)
 
-# Endpoints
-@app.get("/api/status")
-async def get_system_status():
-    """Return backend status, database info, and IGDB credentials status."""
-    has_keys = has_twitch_credentials()
-    stats = get_stats()
-    settings = get_all_settings()
+class SettingsUpdateRequest(BaseModel):
+    rating_duration_seconds: int = Field(..., ge=0, le=120)
+
+
+class SetupRequest(BaseModel):
+    client_id: str = Field(..., min_length=10, max_length=200)
+    client_secret: str = Field(..., min_length=10, max_length=200)
+
+
+def _lan_ip() -> str:
+    """Best guess at this machine's LAN address."""
+    try:
+        # no packets are sent; this just asks the OS which interface would route
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+    except OSError:
+        return "127.0.0.1"
+
+
+@app.get("/api/setup")
+async def setup_status():
+    """Whether IGDB credentials are configured. Never returns the secret."""
     return {
-        "status": "online",
-        "has_twitch_credentials": has_keys,
-        "database": str(DATABASE_PATH),
-        "total_swiped": stats["total_swipes"],
-        "counts": stats["status_counts"],
-        "settings": settings
+        "configured": has_twitch_credentials(),
+        # enough to confirm which app is wired up, not enough to reuse
+        "client_id_hint": (config.TWITCH_CLIENT_ID[:6] + "..."
+                           if has_twitch_credentials() else None),
     }
+
+
+@app.post("/api/setup")
+async def save_setup(payload: SetupRequest):
+    """Verify a Twitch credential pair, then persist it to .env.
+
+    Verified before saving so a typo surfaces immediately instead of turning
+    into an app that silently never loads any games.
+    """
+    problem = await igdb_client.verify_credentials(payload.client_id, payload.client_secret)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+
+    config.save_twitch_credentials(payload.client_id, payload.client_secret)
+    igdb_client.reset_token()   # discard any token from the previous pair
+    logger.info("IGDB credentials saved and verified")
+    return {"success": True}
+
 
 @app.get("/api/network-info")
 async def get_network_info():
-    """Return host local IP and mobile LAN access URL."""
-    import socket
-    lan_ip = "127.0.0.1"
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        lan_ip = s.getsockname()[0]
-        s.close()
-    except Exception:
-        pass
-    
-    return {
-        "lan_ip": lan_ip,
-        "port": PORT,
-        "lan_url": f"http://{lan_ip}:{PORT}"
-    }
+    """Return the host's LAN IP and the URL a phone can reach it on."""
+    ip = _lan_ip()
+    return {"lan_ip": ip, "port": PORT, "lan_url": f"http://{ip}:{PORT}"}
+
+
+@app.get("/api/qr")
+async def qr_code():
+    """QR code for the LAN URL, as SVG.
+
+    Rendered locally with segno rather than fetched from a QR web service: the
+    address of a machine on the user's private network should not be handed to
+    a third party, and this keeps the feature working with no internet at all.
+    """
+    buf = io.BytesIO()
+    segno.make(f"http://{_lan_ip()}:{PORT}", error="m").save(
+        buf, kind="svg", scale=5, border=2, dark="#000000", light="#FFFFFF"
+    )
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/svg+xml",
+        # the LAN IP can change between sessions
+        headers={"Cache-Control": "no-store"},
+    )
+
 
 @app.get("/api/settings")
 async def get_settings():
     """Return current user settings."""
     return get_all_settings()
 
+
 @app.post("/api/settings")
 async def update_settings(payload: SettingsUpdateRequest):
-    """Update user settings such as rating popover duration."""
+    """Update the quick-tag auto-save duration."""
     set_setting("rating_duration_seconds", str(payload.rating_duration_seconds))
     return {"success": True, "settings": get_all_settings()}
 
+
 @app.get("/api/deck")
 async def get_deck(
-    year: int = Query(..., ge=1970, le=2030, description="Release year to fetch"),
-    limit: int = Query(30, ge=1, le=100, description="Number of games to return"),
-    offset: int = Query(0, ge=0, description="Offset for pagination")
+    year: int = Query(..., ge=1970, le=2030),
+    limit: int = Query(30, ge=1, le=100),
+    igdb_offset: int = Query(0, ge=0, description="Pagination cursor into IGDB's ranking")
 ):
+    """Return unswiped games for a year, topping up from IGDB when it runs low.
+
+    There is deliberately no offset into the local query: swiped games are
+    excluded by the join, so the unswiped set is self-paginating. Paging it
+    would skip games the user never saw as the set shrinks. `igdb_offset` is a
+    separate cursor into IGDB's own ranking, used only to fetch more.
     """
-    Fetch unswiped games for the selected year.
-    Pre-caches from IGDB if local cache has few unswiped items.
-    """
-    unswiped = get_unswiped_games(year, limit=limit, offset=offset)
-    
-    # If fewer than 10 unswiped games exist and we have Twitch credentials, fetch from IGDB
-    if len(unswiped) < 10 and has_twitch_credentials():
-        logger.info("Fetching additional games from IGDB for year %d (offset %d)...", year, offset)
-        remote_games = await igdb_client.fetch_top_games_for_year(year, limit=50, offset=offset)
-        if remote_games:
-            upsert_cached_games(remote_games)
-            unswiped = get_unswiped_games(year, limit=limit, offset=offset)
+    games = get_unswiped_games(year, limit=limit)
+    has_more = True
+    next_igdb_offset = igdb_offset
+
+    if len(games) < REFILL_THRESHOLD and has_twitch_credentials():
+        remote = await igdb_client.fetch_top_games_for_year(
+            year, limit=IGDB_PAGE_SIZE, offset=igdb_offset
+        )
+        if remote:
+            upsert_cached_games(remote)
+            next_igdb_offset = igdb_offset + len(remote)
+            games = get_unswiped_games(year, limit=limit)
+        else:
+            # We asked IGDB for more and it had none, so this year is finished
+            # even if unswiped cards remain locally. Reporting has_more here
+            # stops the client re-querying IGDB on every one of those swipes.
+            has_more = False
+    elif not games:
+        # nothing cached and no way to fetch more
+        has_more = has_twitch_credentials()
 
     return {
-        "year": year,
-        "count": len(unswiped),
-        "offset": offset,
-        "games": unswiped
+        "games": games,
+        "has_more": has_more,
+        "igdb_offset": next_igdb_offset,
+        "has_credentials": has_twitch_credentials(),
     }
+
+
+@app.get("/api/search")
+async def search(q: str = Query(..., min_length=2, max_length=100)):
+    """Search games by title across all years, falling back to the local cache."""
+    games = []
+    if has_twitch_credentials():
+        remote = await igdb_client.search_games(q)
+        if remote:
+            upsert_cached_games(remote)
+            games = remote
+
+    if not games:
+        games = search_cached_games(q)
+
+    return {"query": q, "games": games, "has_credentials": has_twitch_credentials()}
+
 
 @app.post("/api/swipe")
 async def handle_swipe(payload: SwipeRequest):
-    """Record a user swipe action."""
-    if payload.status not in ('played', 'skipped', 'backlog'):
-        raise HTTPException(status_code=400, detail="Invalid status. Choose played, skipped, or backlog.")
-    
-    result = record_swipe(
+    """Record a swipe."""
+    if not game_exists(payload.igdb_id):
+        raise HTTPException(status_code=404, detail="Game not in cache")
+
+    return record_swipe(
         igdb_id=payload.igdb_id,
         status=payload.status,
         platform_played=payload.platform_played,
         hours_played=payload.hours_played,
         user_rating=payload.user_rating
     )
-    return result
+
 
 @app.post("/api/undo")
 async def handle_undo():
-    """Roll back the most recent swipe action."""
+    """Roll back the most recent swipe."""
     result = undo_last_swipe()
     if not result:
         return {"success": False, "message": "No swipes to undo"}
     return {"success": True, **result}
 
-# Catalog Explorer Endpoints
+
 @app.get("/api/catalog")
 async def get_catalog(
-    status: Optional[str] = Query(None, description="Filter by status ('all', 'played', 'backlog', 'skipped')"),
-    search: Optional[str] = Query(None, description="Search by title substring"),
-    sort: str = Query("date_desc", description="Sorting field (date_desc, date_asc, title_asc, year_desc, rating_desc, hours_desc)")
+    status: Optional[Literal["all", "played", "backlog", "skipped"]] = None,
+    search: Optional[str] = None,
+    sort: str = Query("date_desc")
 ):
-    """Retrieve cataloged games with search, status filtering, and sorting."""
-    from .db import get_catalog_games
+    """Return logged games with search, status filtering and sorting."""
+    if sort not in SORT_OPTIONS:
+        raise HTTPException(status_code=422, detail=f"Unknown sort: {sort}")
+
     games = get_catalog_games(status=status, search=search, sort_by=sort)
-    return {
-        "count": len(games),
-        "games": games
-    }
+    return {"count": len(games), "games": games}
+
 
 @app.put("/api/catalog/{igdb_id}")
-async def update_catalog_item(igdb_id: int, payload: CatalogUpdateRequest):
-    """Edit swipe record for a game in the catalog."""
-    from .db import update_swipe_item
-    success = update_swipe_item(
+async def update_catalog_item(igdb_id: int, payload: SwipeFields):
+    """Edit a swipe record."""
+    updated = update_swipe_item(
         igdb_id=igdb_id,
         status=payload.status,
         platform_played=payload.platform_played,
         hours_played=payload.hours_played,
         user_rating=payload.user_rating
     )
-    if not success:
+    if not updated:
         raise HTTPException(status_code=404, detail="Swipe record not found")
     return {"success": True, "igdb_id": igdb_id}
 
+
 @app.delete("/api/catalog/{igdb_id}")
 async def delete_catalog_item(igdb_id: int):
-    """Delete a swipe record, returning the game back to the unswiped pool."""
-    from .db import delete_swipe_item
-    success = delete_swipe_item(igdb_id)
-    if not success:
+    """Delete a swipe, returning the game to the deck."""
+    if not delete_swipe_item(igdb_id):
         raise HTTPException(status_code=404, detail="Swipe record not found")
-    return {"success": True, "igdb_id": igdb_id, "message": "Swipe removed and game returned to deck"}
+    return {"success": True, "igdb_id": igdb_id}
 
-# Danger Zone Reset Endpoint
+
 @app.post("/api/reset")
 async def handle_reset(payload: ResetRequest):
-    """Execute scoped resets."""
-    from .db import reset_year_swipes, reset_all_swipes, factory_reset
+    """Execute a scoped reset."""
     if payload.scope == "year":
-        if not payload.year:
-            raise HTTPException(status_code=400, detail="Year must be specified for year-scoped reset")
-        deleted = reset_year_swipes(payload.year)
-        return {"success": True, "scope": "year", "year": payload.year, "deleted_swipes": deleted}
-    elif payload.scope == "all_swipes":
-        deleted = reset_all_swipes()
-        return {"success": True, "scope": "all_swipes", "deleted_swipes": deleted}
-    elif payload.scope == "factory":
-        factory_reset()
-        return {"success": True, "scope": "factory", "message": "Factory reset complete"}
-    else:
-        raise HTTPException(status_code=400, detail="Invalid reset scope. Choose 'year', 'all_swipes', or 'factory'.")
+        if payload.year is None:
+            raise HTTPException(status_code=400, detail="Year required for a year-scoped reset")
+        return {"success": True, "scope": "year", "year": payload.year,
+                "deleted_swipes": reset_swipes(payload.year)}
+
+    if payload.scope == "all_swipes":
+        return {"success": True, "scope": "all_swipes", "deleted_swipes": reset_swipes()}
+
+    factory_reset()
+    return {"success": True, "scope": "factory", "message": "Factory reset complete"}
+
 
 @app.get("/api/stats")
 async def handle_stats():
-    """Return aggregated review statistics."""
+    """Return swipe totals and a per-year breakdown."""
     return get_stats()
 
-@app.get("/api/export")
-async def handle_export(
-    format: str = Query("csv", regex="^(csv|json|playnite)$", description="Export format")
-):
-    """Export logged games in Clean CSV, JSON, or Playnite CSV format."""
-    records = get_all_swiped_records()
-    
-    if format == "json":
-        data = export_json(records)
-        return Response(
-            content=data,
-            media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=xp_deck_games.json"}
-        )
-    elif format == "playnite":
-        data = export_playnite_csv(records)
-        return Response(
-            content=data,
-            media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=xp_deck_playnite.csv"}
-        )
-    else: # Clean CSV
-        data = export_clean_csv(records)
-        return Response(
-            content=data,
-            media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=xp_deck_games.csv"}
-        )
 
-# Mount static files
+@app.get("/api/export")
+async def handle_export(format: Literal["csv", "json", "playnite"] = "csv"):
+    """Export logged games as clean CSV, structured JSON, or Playnite CSV."""
+    render, media_type, filename = EXPORT_FORMATS[format]
+    return Response(
+        content=render(get_catalog_games()),
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/catalog")
+async def catalog_page():
+    """Serve the Windows Explorer style catalog page."""
+    return FileResponse(STATIC_DIR / "catalog.html")
+
 
 @app.get("/")
 async def root():
-    """Serve main SPA frame."""
-    index_file = STATIC_DIR / "index.html"
-    if index_file.exists():
-        return FileResponse(index_file)
-    return {"message": "XP-Deck API is running. index.html not yet created."}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("backend.app:app", host=HOST, port=PORT, reload=True)
+    """Serve the main application frame."""
+    return FileResponse(STATIC_DIR / "index.html")

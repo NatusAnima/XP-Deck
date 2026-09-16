@@ -1,5 +1,10 @@
 /* ==========================================================================
-   SWIPER.CSS: Card Deck Physics, 3D Flips, Gesture Badges & Quick-Tag
+   SWIPER.CSS: Card deck, 3D flip, swipe stamps and the quick-tag popover.
+
+   The desktop overrides for .deck-container and .game-card live at the bottom
+   of THIS file rather than in xp-luna.css: both base rules are here, and this
+   stylesheet loads second, so keeping them together is what removes the need
+   for !important on them.
    ========================================================================== */
 
 .deck-container {
@@ -7,8 +12,7 @@
   width: 100%;
   height: 480px;
   background: #2A2E33;
-  background-image: 
-    radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 0);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 0);
   background-size: 16px 16px;
   border: 2px inset #7F9DB9;
   overflow: hidden;
@@ -16,10 +20,12 @@
   align-items: center;
   justify-content: center;
   perspective: 1000px;
-  touch-action: none; /* Crucial for custom pointer gesture handling */
+  touch-action: none;   /* the deck owns dragging; children opt back in below */
 }
 
-/* Empty / End of Queue State */
+/* ==========================================================================
+   Empty / end-of-queue state
+   ========================================================================== */
 .deck-empty {
   display: none;
   flex-direction: column;
@@ -32,16 +38,14 @@
   z-index: 0;
 }
 
-.deck-empty.visible {
-  display: flex;
-}
+.deck-empty.visible { display: flex; }
 
 .deck-empty-icon {
   width: 44px;
   height: 44px;
 }
 
-.deck-empty h3 {
+.deck-empty h2 {
   font-size: 16px;
   color: #FFDE59;
   text-shadow: 1px 1px 2px #000000;
@@ -50,8 +54,13 @@
 .deck-empty p {
   font-size: 12px;
   color: #CCCCCC;
-  max-width: 300px;
-  line-height: 1.4;
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+.deck-empty-note {
+  color: #FFDE59;
+  font-weight: bold;
 }
 
 .deck-empty-actions {
@@ -59,12 +68,12 @@
   flex-direction: column;
   gap: 8px;
   width: 100%;
-  max-width: 260px;
+  max-width: 280px;
   margin-top: 4px;
 }
 
 /* ==========================================================================
-   Game Card Item
+   Card
    ========================================================================== */
 .game-card {
   position: absolute;
@@ -82,66 +91,36 @@
   will-change: transform, opacity;
 }
 
-.game-card:active {
-  cursor: grabbing;
-}
+.game-card:active { cursor: grabbing; }
 
-/* 5-Card Stack Buffering Offsets */
-.game-card[data-index="0"] {
-  z-index: 5;
-  transform: translateY(0px) scale(1);
-  opacity: 1;
-}
+/* Stack depth: only the top card takes pointer input. */
+.game-card[data-index="0"] { z-index: 5; transform: translateY(0px)  scale(1.00); opacity: 1; }
+.game-card[data-index="1"] { z-index: 4; transform: translateY(8px)  scale(0.96); opacity: 0.90; pointer-events: none; }
+.game-card[data-index="2"] { z-index: 3; transform: translateY(16px) scale(0.92); opacity: 0.75; pointer-events: none; }
+.game-card[data-index="3"] { z-index: 2; transform: translateY(24px) scale(0.88); opacity: 0.55; pointer-events: none; }
+.game-card[data-index="4"] { z-index: 1; transform: translateY(32px) scale(0.84); opacity: 0.35; pointer-events: none; }
 
-.game-card[data-index="1"] {
-  z-index: 4;
-  transform: translateY(8px) scale(0.96);
-  opacity: 0.9;
-  pointer-events: none;
-}
-
-.game-card[data-index="2"] {
-  z-index: 3;
-  transform: translateY(16px) scale(0.92);
-  opacity: 0.75;
-  pointer-events: none;
-}
-
-.game-card[data-index="3"] {
-  z-index: 2;
-  transform: translateY(24px) scale(0.88);
-  opacity: 0.55;
-  pointer-events: none;
-}
-
-.game-card[data-index="4"] {
-  z-index: 1;
-  transform: translateY(32px) scale(0.84);
-  opacity: 0.35;
-  pointer-events: none;
-}
-
-/* Smooth fly-off animations */
-.game-card.fly-right {
-  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.3s ease !important;
-  transform: translate(140vw, -20px) rotate(35deg) !important;
-  opacity: 0 !important;
-}
-
-.game-card.fly-left {
-  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.3s ease !important;
-  transform: translate(-140vw, -20px) rotate(-35deg) !important;
-  opacity: 0 !important;
-}
-
+/* A card mid-drag carries an inline transform, which beats any stylesheet
+   rule. !important is the only way for the fly-off to take over from it. */
+.game-card.fly-right,
+.game-card.fly-left,
 .game-card.fly-up {
   transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.4, 1), opacity 0.3s ease !important;
-  transform: translate(0, -140vh) rotate(5deg) !important;
   opacity: 0 !important;
+}
+
+.game-card.fly-right { transform: translate(140vw, -20px) rotate(35deg) !important; }
+.game-card.fly-left  { transform: translate(-140vw, -20px) rotate(-35deg) !important; }
+.game-card.fly-up    { transform: translate(0, -140vh) rotate(5deg) !important; }
+
+/* Entry animation for a card returning to the deck (undo, or a failed save) */
+.game-card.card-returning {
+  opacity: 0;
+  transform: translateY(-30px) scale(0.9);
 }
 
 /* ==========================================================================
-   3D Card Flip Implementation
+   3D flip
    ========================================================================== */
 .card-inner {
   position: relative;
@@ -152,11 +131,10 @@
   transition: transform 0.45s cubic-bezier(0.4, 0.2, 0.2, 1);
 }
 
-.game-card.flipped .card-inner {
-  transform: rotateY(180deg);
-}
+.game-card.flipped .card-inner { transform: rotateY(180deg); }
 
-.card-front, .card-back {
+.card-front,
+.card-back {
   position: absolute;
   inset: 0;
   border-radius: 6px;
@@ -167,10 +145,7 @@
   flex-direction: column;
 }
 
-/* Card Front Styling */
-.card-front {
-  background: #111111;
-}
+.card-front { background: #111111; }
 
 .card-cover {
   width: 100%;
@@ -183,10 +158,10 @@
   position: absolute;
   inset: 0;
   background: linear-gradient(
-    180deg, 
-    rgba(0, 0, 0, 0.15) 0%, 
-    transparent 35%, 
-    rgba(0, 0, 0, 0.6) 65%, 
+    180deg,
+    rgba(0, 0, 0, 0.15) 0%,
+    transparent 35%,
+    rgba(0, 0, 0, 0.6) 65%,
     rgba(0, 0, 0, 0.95) 100%
   );
   display: flex;
@@ -211,15 +186,17 @@
   font-weight: bold;
 }
 
+.card-pill.pill-lg { font-size: 12px; }
+
 .pill-rating {
   background: #FFB300;
   color: #000000;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
 }
 
 .pill-year {
   background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(4px);
   color: #FFFFFF;
   border: 1px solid rgba(255, 255, 255, 0.4);
 }
@@ -255,14 +232,14 @@
   gap: 5px;
 }
 
-/* Card Back Styling - Maximum Description Readability */
+/* ==========================================================================
+   Card back
+   ========================================================================== */
 .card-back {
   background: #ECE9D8;
   color: #000000;
   transform: rotateY(180deg);
   border: 2px solid #0055EA;
-  display: flex;
-  flex-direction: column;
 }
 
 .card-back-header {
@@ -272,15 +249,37 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   font-weight: bold;
   font-size: 12px;
   flex-shrink: 0;
+}
+
+.card-back-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.card-back-heading > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-back-close {
   cursor: pointer;
   padding: 0 4px;
   font-size: 14px;
+  background: none;
+  border: none;
+  color: #FFFFFF;
+  flex-shrink: 0;
+}
+
+.card-back-close:focus-visible {
+  outline: 2px solid #FFCC00;
 }
 
 .card-back-content {
@@ -290,6 +289,7 @@
   flex-direction: column;
   gap: 8px;
   overflow: hidden;
+  min-height: 0;
 }
 
 .card-back-sub {
@@ -304,7 +304,6 @@
   flex-shrink: 0;
 }
 
-/* Hero Description Box: Huge, clear, high contrast, comfortable reading */
 .card-back-summary {
   flex: 1;
   min-height: 0;
@@ -317,6 +316,15 @@
   border-radius: 3px;
   overflow-y: auto;
   box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.15);
+  /* The deck sets touch-action: none for dragging, which also blocked
+     scrolling the synopsis on a phone - the card back's whole point. */
+  touch-action: pan-y;
+  user-select: text;
+}
+
+.card-back-summary:focus-visible {
+  outline: 2px solid #0055EA;
+  outline-offset: -2px;
 }
 
 .card-back-footer {
@@ -328,16 +336,17 @@
   flex-shrink: 0;
 }
 
-.meta-box strong {
-  display: block;
-  color: #003399;
-  margin-bottom: 2px;
+/* Screenshot strip - the only gallery available on mobile, where the
+   desktop inspector pane is hidden. */
+.card-shots {
+  flex-shrink: 0;
 }
 
 .screenshots-title {
   font-size: 11px;
   font-weight: bold;
   color: #333333;
+  margin-bottom: 4px;
 }
 
 .card-back-screenshots {
@@ -348,20 +357,20 @@
 
 .screenshot-thumb {
   width: 100%;
-  height: 60px;
+  aspect-ratio: 16 / 9;
   object-fit: cover;
   border: 1px solid #7F9DB9;
   border-radius: 2px;
   cursor: pointer;
+  background: #000000;
   transition: transform 0.1s ease;
+  touch-action: manipulation;
 }
 
-.screenshot-thumb:hover {
-  transform: scale(1.05);
-}
+.screenshot-thumb:hover { transform: scale(1.05); }
 
 /* ==========================================================================
-   Swipe Stamp Badges (Overlay during drag)
+   Swipe stamps
    ========================================================================== */
 .stamp-badge {
   position: absolute;
@@ -374,15 +383,17 @@
   opacity: 0;
   pointer-events: none;
   z-index: 10;
+  background: rgba(0, 0, 0, 0.4);
+  border-width: 4px;
+  border-style: solid;
   transition: opacity 0.1s ease;
 }
 
 .stamp-played {
   top: 30px;
   right: 25px;
-  border: 4px solid #42B72A;
+  border-color: #42B72A;
   color: #42B72A;
-  background: rgba(0, 0, 0, 0.4);
   transform: rotate(18deg);
   text-shadow: 0 0 8px rgba(66, 183, 42, 0.8);
   box-shadow: 0 0 16px rgba(66, 183, 42, 0.5);
@@ -391,9 +402,8 @@
 .stamp-skipped {
   top: 30px;
   left: 25px;
-  border: 4px solid #E81123;
+  border-color: #E81123;
   color: #E81123;
-  background: rgba(0, 0, 0, 0.4);
   transform: rotate(-18deg);
   text-shadow: 0 0 8px rgba(232, 17, 35, 0.8);
   box-shadow: 0 0 16px rgba(232, 17, 35, 0.5);
@@ -402,16 +412,15 @@
 .stamp-backlog {
   top: 35px;
   left: 50%;
-  transform: translateX(-50%) rotate(0deg);
-  border: 4px solid #3593FF;
+  transform: translateX(-50%);
+  border-color: #3593FF;
   color: #3593FF;
-  background: rgba(0, 0, 0, 0.4);
   text-shadow: 0 0 8px rgba(53, 147, 255, 0.8);
   box-shadow: 0 0 16px rgba(53, 147, 255, 0.5);
 }
 
 /* ==========================================================================
-   Quick-Tag Popover (Appears on Played) - Configurable Duration
+   Quick-tag popover
    ========================================================================== */
 .quicktag-popover {
   position: absolute;
@@ -428,14 +437,14 @@
   flex-direction: column;
   gap: 8px;
   animation: slideUpPop 0.2s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+  /* form fields inside must accept taps and scrolling, not card drags */
+  touch-action: auto;
 }
 
-.quicktag-popover.visible {
-  display: flex;
-}
+.quicktag-popover.visible { display: flex; }
 
 @keyframes slideUpPop {
-  0% { transform: translateY(20px); opacity: 0; }
+  0%   { transform: translateY(20px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
 }
 
@@ -443,15 +452,23 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   font-weight: bold;
   font-size: 12px;
   color: #003399;
+}
+
+.quicktag-header > span:first-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .quicktag-timer {
   font-size: 11px;
   color: #666666;
   font-weight: normal;
+  white-space: nowrap;
 }
 
 .quicktag-timer-bar {
@@ -468,10 +485,15 @@
   background: #42B72A;
 }
 
+/* Countdown cancelled because the user engaged with the popover. */
+.quicktag-timer-fill.paused {
+  background: #7F9DB9;
+}
+
 .quicktag-fields {
   display: flex;
   gap: 8px;
-  align-items: center;
+  align-items: flex-end;
 }
 
 .quicktag-field {
@@ -479,9 +501,15 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0;
 }
 
-.quicktag-field label {
+.quicktag-field-narrow {
+  max-width: 86px;
+}
+
+.quicktag-field label,
+.quicktag-rating-label {
   font-size: 10px;
   font-weight: bold;
 }
@@ -493,7 +521,7 @@
 
 .rating-btn {
   flex: 1;
-  height: 24px;
+  height: 26px;
   font-size: 11px;
   font-weight: bold;
   padding: 0;
@@ -501,6 +529,7 @@
   border: 1px solid #7F9DB9;
   background: #FFFFFF;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .rating-btn.active {
@@ -509,8 +538,20 @@
   color: #000000;
 }
 
+.quicktag-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.quicktag-actions .xp-button {
+  padding: 3px 12px;
+  font-size: 11px;
+}
+
 /* ==========================================================================
-   Deck Action Controls Bar
+   Deck controls
    ========================================================================== */
 .deck-controls {
   display: flex;
@@ -520,28 +561,23 @@
   background: var(--xp-bg);
   border-top: 1px solid #FFFFFF;
   gap: 5px;
-  box-sizing: border-box;
   flex-shrink: 0;
 }
 
 .action-btn {
   flex: 1;
   min-height: 46px;
-  height: auto;
   padding: 5px 3px;
   font-size: 11px;
   font-weight: bold;
-  display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
   gap: 2px;
-  box-sizing: border-box;
   overflow: hidden;
   text-align: center;
+  touch-action: manipulation;
 }
 
-.action-btn span:first-child {
+.action-btn-label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -555,4 +591,32 @@
   opacity: 0.8;
   font-weight: normal;
   white-space: nowrap;
+}
+
+/* ==========================================================================
+   Touch sizing - fingers need more room than a mouse pointer
+   ========================================================================== */
+@media (pointer: coarse) {
+  .rating-btn { height: 40px; font-size: 13px; }
+  .action-btn { min-height: 54px; }
+  .card-back-close { padding: 4px 10px; font-size: 16px; }
+  .screenshot-thumb { min-height: 48px; }
+}
+
+/* ==========================================================================
+   Desktop layout - kept here, next to the base rules these override
+   ========================================================================== */
+@media (min-width: 820px) {
+  /* flex instead of height:100% so .deck-controls is never pushed off-screen */
+  .deck-container {
+    flex: 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  .game-card {
+    width: 90%;
+    max-width: 480px;
+    height: min(580px, calc(100% - 24px));
+  }
 }

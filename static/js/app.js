@@ -1,210 +1,251 @@
 /**
- * APP.JS: XP-Deck Application Coordinator & State Manager
- * Enhanced with Desktop Inspector, In-Page Picture Viewer, Catalog Explorer,
- * Danger Zone, Configurable Rating Duration, and End-of-Year Progression.
+ * APP.JS: XP-Deck coordinator - deck state, rendering, and controls.
+ *
+ * Rendering goes through <template> + textContent rather than innerHTML, so
+ * game titles and summaries coming back from IGDB are never parsed as markup.
+ * $, clone, gameLinks and hideOnError come from shared.js.
  */
+
+/** Display-ready fields with fallbacks, shared by the card and the inspector. */
+function displayFields(game) {
+  const genres = game.genres || 'Video Game';
+  const platforms = game.platforms || 'Multiple Platforms';
+  return {
+    genres,
+    platforms,
+    primaryGenre: genres.split(',')[0].trim(),
+    primaryPlatform: platforms.split(',')[0].trim(),
+    rating: game.rating ? `★ ${game.rating}` : '★ Unrated',
+    year: game.release_year || '—'
+  };
+}
+
+const STACK_SIZE = 5;
+const PAGE_SIZE = 30;
+// Pull the next page once the queue gets this short. Without it the deck runs
+// out at 30 and claims "Year Complete!" while the server still has unswiped
+// games cached - and the progress bar sits still through the whole page.
+const REFILL_AT = 8;
+const STORE = { year: 'xp_year', sound: 'xp_sound_enabled', duration: 'xp_rating_duration' };
 
 class XPDeckApp {
   constructor() {
-    this.currentYear = 2004;
-    this.currentOffset = 0;
     this.queue = [];
     this.renderedCards = [];
     this.stats = null;
     this.soundEnabled = true;
+    this.mode = 'year';           // 'year' | 'search'
+    this.hasMoreForYear = true;
+    this.igdbOffset = 0;
+    this.hasCredentials = true;
 
-    // Configurable Rating Duration (default 10s)
+    this.currentYear = this.readStoredYear();
     this.ratingDurationSeconds = 10;
     this.quickTagActive = false;
     this.quickTagTimer = null;
     this.pendingPlayedGame = null;
     this.selectedRating = null;
 
-    // Picture Viewer State
-    this.currentViewerImages = [];
-    this.currentViewerIndex = 0;
-
-    // Audio & API
+    this.viewerImages = [];
+    this.viewerIndex = 0;
     this.audioCtx = null;
 
     this.init();
+  }
+
+  readStoredYear() {
+    const stored = parseInt(localStorage.getItem(STORE.year), 10);
+    const max = new Date().getFullYear();
+    return stored >= 1980 && stored <= max ? stored : 2004;
   }
 
   async init() {
     this.initAudio();
     this.initYearSelector();
     this.initMenu();
-    this.initGestures();
-    this.initShortcuts();
     this.initControls();
     this.initModals();
+    this.gestures = new CardGestures(
+      $('deck-container'),
+      (card, action) => this.onCardSwiped(card, action),
+      () => this.flipTopCard()
+    );
+    this.shortcuts = new KeyboardShortcuts(this);
 
-    // Load user settings from backend / local cache
     await this.loadSettings();
-
-    // Refresh stats and load initial year
     await this.refreshStats();
     await this.loadYear(this.currentYear);
+
+    // First run: no credentials means no games can ever load, so explain that
+    // before the user stares at an empty deck wondering what is broken.
+    if (!this.hasCredentials) this.openSetup(true);
   }
 
   // =========================================================================
-  // User Settings (Adjustable & Persisted Rating Duration)
+  // First-run setup
   // =========================================================================
-  async loadSettings() {
-    try {
-      const data = await API.getSettings();
-      if (data && data.rating_duration_seconds !== undefined) {
-        this.ratingDurationSeconds = parseInt(data.rating_duration_seconds, 10);
-      }
-    } catch (e) {
-      const cached = localStorage.getItem('xp_rating_duration');
-      if (cached !== null) {
-        this.ratingDurationSeconds = parseInt(cached, 10);
-      }
+  openSetup(firstRun = false) {
+    this.playSound('click');
+    $('setup-skip-btn').textContent = firstRun ? 'Skip for now' : 'Cancel';
+    $('setup-close-btn').hidden = firstRun;   // no escape hatch on first run
+    $('setup-status').hidden = true;
+    $('modal-setup').classList.add('open');
+    $('setup-client-id').focus();
+  }
+
+  setSetupStatus(message, kind) {
+    const el = $('setup-status');
+    el.hidden = false;
+    el.textContent = message;
+    el.className = `setup-status setup-${kind}`;
+  }
+
+  async saveSetup() {
+    const id = $('setup-client-id').value.trim();
+    const secret = $('setup-client-secret').value.trim();
+
+    if (!id || !secret) {
+      this.setSetupStatus('Enter both the Client ID and the Client Secret.', 'error');
+      return;
     }
 
-    const input = document.getElementById('setting-rating-duration');
-    const label = document.getElementById('setting-duration-label');
-    if (input) input.value = this.ratingDurationSeconds;
-    if (label) {
-      label.textContent = this.ratingDurationSeconds === 0 ? 'Manual / Sticky (No auto-save)' : `${this.ratingDurationSeconds} seconds`;
+    const button = $('setup-save-btn');
+    button.disabled = true;
+    this.setSetupStatus('Checking your keys with Twitch...', 'busy');
+
+    try {
+      await API.saveSetup(id, secret);
+      this.setSetupStatus('Connected. Loading your first games...', 'ok');
+      this.playSound('played');
+      $('setup-client-secret').value = '';
+      setTimeout(async () => {
+        this.closeModals();
+        await this.loadYear(this.currentYear);
+      }, 900);
+    } catch (err) {
+      this.setSetupStatus(err.message, 'error');
+      this.playSound('error');
+    } finally {
+      button.disabled = false;
     }
+  }
+
+  // =========================================================================
+  // Settings
+  // =========================================================================
+  async loadSettings() {
+    let raw = null;
+    try {
+      raw = (await API.getSettings()).rating_duration_seconds;
+    } catch {
+      raw = localStorage.getItem(STORE.duration);
+    }
+
+    // A malformed value used to yield NaN, and setTimeout(fn, NaN) fires
+    // immediately - auto-saving the rating before it could be entered.
+    const parsed = parseInt(raw, 10);
+    this.ratingDurationSeconds = Number.isFinite(parsed) ? Math.max(0, parsed) : 10;
+
+    $('setting-rating-duration').value = this.ratingDurationSeconds;
+    this.updateDurationLabel(this.ratingDurationSeconds);
+  }
+
+  updateDurationLabel(seconds) {
+    $('setting-duration-label').textContent =
+      seconds === 0 ? 'Manual (no auto-save)' : `${seconds} seconds`;
   }
 
   async saveSettings(duration) {
-    this.ratingDurationSeconds = parseInt(duration, 10);
-    localStorage.setItem('xp_rating_duration', this.ratingDurationSeconds.toString());
+    this.ratingDurationSeconds = duration;
+    localStorage.setItem(STORE.duration, String(duration));
     try {
-      await API.updateSettings(this.ratingDurationSeconds);
-      this.setStatus(`Settings saved: Rating duration set to ${this.ratingDurationSeconds}s.`);
-    } catch (e) {
-      this.setStatus(`Settings saved locally: ${this.ratingDurationSeconds}s.`);
+      await API.updateSettings(duration);
+      this.setStatus(`Auto-save timer set to ${duration}s.`);
+    } catch {
+      this.setStatus(`Saved locally (${duration}s); backend unreachable.`);
     }
   }
 
   // =========================================================================
-  // Web Audio Synthesizer (No external audio files)
+  // Audio - short synthesized blips, no asset files
   // =========================================================================
   initAudio() {
-    const savedSound = localStorage.getItem('xp_sound_enabled');
-    if (savedSound !== null) {
-      this.soundEnabled = savedSound === 'true';
-    }
-    this.updateSoundIcon();
+    const saved = localStorage.getItem(STORE.sound);
+    if (saved !== null) this.soundEnabled = saved === 'true';
+    this.applySoundState();
 
-    const unlockAudio = () => {
+    // Browsers only allow an AudioContext after a user gesture.
+    const unlock = () => {
       if (!this.audioCtx) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) {
-          this.audioCtx = new AudioContext();
-        }
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) this.audioCtx = new Ctx();
       }
-      if (this.audioCtx && this.audioCtx.state === 'suspended') {
-        this.audioCtx.resume();
-      }
-      window.removeEventListener('pointerdown', unlockAudio);
-      window.removeEventListener('keydown', unlockAudio);
+      this.audioCtx?.resume();
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
     };
-
-    window.addEventListener('pointerdown', unlockAudio);
-    window.addEventListener('keydown', unlockAudio);
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
   }
 
   toggleSound() {
     this.soundEnabled = !this.soundEnabled;
-    localStorage.setItem('xp_sound_enabled', this.soundEnabled.toString());
-    this.updateSoundIcon();
-    if (this.soundEnabled) {
-      this.playSound('click');
-    }
+    localStorage.setItem(STORE.sound, String(this.soundEnabled));
+    this.applySoundState();
+    if (this.soundEnabled) this.playSound('click');
   }
 
-  updateSoundIcon() {
-    const soundBtn = document.getElementById('sound-toggle-btn');
-    const statusSound = document.getElementById('status-sound');
-    const icon = this.soundEnabled ? XPIcons.speaker : XPIcons.speakerMute;
-    const text = this.soundEnabled ? ' Sound: ON' : ' Sound: OFF';
-    
-    if (soundBtn) soundBtn.innerHTML = `${icon}<span>${text}</span>`;
-    if (statusSound) statusSound.innerHTML = `${icon}<span>${text}</span>`;
+  applySoundState() {
+    document.body.classList.toggle('sound-off', !this.soundEnabled);
+    const text = this.soundEnabled ? 'Sound: ON' : 'Sound: OFF';
+    document.querySelectorAll('.sound-label').forEach(el => { el.textContent = text; });
   }
 
-  playSound(type) {
+  /** Play a short envelope over one or more tones. */
+  beep(tones, { type = 'sine', gain = 0.12, spacing = 0, decay = 0.2 } = {}) {
     if (!this.soundEnabled || !this.audioCtx) return;
-    try {
-      const now = this.audioCtx.currentTime;
+    const now = this.audioCtx.currentTime;
 
-      if (type === 'click') {
-        const osc = this.audioCtx.createOscillator();
-        const gain = this.audioCtx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(1400, now);
-        osc.frequency.exponentialRampToValueAtTime(300, now + 0.04);
-        gain.gain.setValueAtTime(0.15, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
-        osc.connect(gain);
-        gain.connect(this.audioCtx.destination);
-        osc.start(now);
-        osc.stop(now + 0.05);
-      } else if (type === 'whoosh') {
-        const osc = this.audioCtx.createOscillator();
-        const gain = this.audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(350, now);
-        osc.frequency.exponentialRampToValueAtTime(120, now + 0.12);
-        gain.gain.setValueAtTime(0.12, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-        osc.connect(gain);
-        gain.connect(this.audioCtx.destination);
-        osc.start(now);
-        osc.stop(now + 0.14);
-      } else if (type === 'ding') {
-        [523.25, 659.25, 783.99].forEach((freq, idx) => {
-          const osc = this.audioCtx.createOscillator();
-          const gain = this.audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, now + idx * 0.02);
-          gain.gain.setValueAtTime(0.12, now + idx * 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.02 + 0.35);
-          osc.connect(gain);
-          gain.connect(this.audioCtx.destination);
-          osc.start(now + idx * 0.02);
-          osc.stop(now + idx * 0.02 + 0.4);
-        });
-      } else if (type === 'undo') {
-        [440, 554.37].forEach((freq, idx) => {
-          const osc = this.audioCtx.createOscillator();
-          const gain = this.audioCtx.createGain();
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, now + idx * 0.06);
-          gain.gain.setValueAtTime(0.1, now + idx * 0.06);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.2);
-          osc.connect(gain);
-          gain.connect(this.audioCtx.destination);
-          osc.start(now + idx * 0.06);
-          osc.stop(now + idx * 0.06 + 0.25);
-        });
-      }
-    } catch (e) {}
+    tones.forEach(([from, to], i) => {
+      const at = now + i * spacing;
+      const osc = this.audioCtx.createOscillator();
+      const vol = this.audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(from, at);
+      if (to) osc.frequency.exponentialRampToValueAtTime(to, at + decay);
+      vol.gain.setValueAtTime(gain, at);
+      vol.gain.exponentialRampToValueAtTime(0.001, at + decay);
+      osc.connect(vol).connect(this.audioCtx.destination);
+      osc.start(at);
+      osc.stop(at + decay + 0.02);
+    });
+  }
+
+  playSound(kind) {
+    const sounds = {
+      click: () => this.beep([[1400, 300]], { type: 'triangle', gain: 0.15, decay: 0.04 }),
+
+      // One sound per swipe direction, shaped like the gesture: skipping
+      // sweeps down and away, backlog sweeps up, played is a rising chime.
+      skipped: () => this.beep([[350, 110]], { gain: 0.12, decay: 0.14 }),
+      backlog: () => this.beep([[330, 880]], { type: 'triangle', gain: 0.10, decay: 0.18 }),
+      played: () => this.beep([[523.25], [659.25], [783.99]], { spacing: 0.02, decay: 0.35 }),
+
+      undo: () => this.beep([[440], [554.37]], { gain: 0.1, spacing: 0.06, decay: 0.2 }),
+      error: () => this.beep([[320], [220]], { type: 'square', gain: 0.1, spacing: 0.1, decay: 0.18 })
+    };
+    sounds[kind]?.();
   }
 
   // =========================================================================
-  // Year Selector & Progression
+  // Year selection & loading
   // =========================================================================
   initYearSelector() {
-    const select = document.getElementById('year-select');
-    if (!select) return;
-
-    select.innerHTML = '';
-    const currentYear = new Date().getFullYear();
-
-    for (let y = currentYear; y >= 1980; y--) {
-      const opt = document.createElement('option');
-      opt.value = y;
-      opt.textContent = `${y}`;
-      select.appendChild(opt);
+    const select = $('year-select');
+    const thisYear = new Date().getFullYear();
+    for (let y = thisYear; y >= 1980; y--) {
+      select.add(new Option(y, y));
     }
-
     select.value = this.currentYear;
     select.addEventListener('change', (e) => {
       this.playSound('click');
@@ -212,1069 +253,801 @@ class XPDeckApp {
     });
   }
 
-  async loadYear(year, offset = 0) {
+  async loadYear(year) {
+    this.mode = 'year';
     this.currentYear = year;
-    this.currentOffset = offset;
+    this.igdbOffset = 0;
+    localStorage.setItem(STORE.year, String(year));
+    $('deck-search').value = '';
 
-    const select = document.getElementById('year-select');
-    if (select && select.value != year) select.value = year;
+    const select = $('year-select');
+    if (select.value !== String(year)) select.value = year;
 
     this.setStatus(`Loading games for ${year}...`);
-    if (offset === 0) {
-      this.queue = [];
-      this.clearDeckDOM();
-    }
+    await this.fetchDeck();
+  }
 
+  async fetchDeck() {
     try {
-      const data = await API.getDeck(year, 30, offset);
-      const newGames = data.games || [];
+      const data = await API.getDeck(this.currentYear, PAGE_SIZE, this.igdbOffset);
+      this.queue = data.games;
+      this.hasMoreForYear = data.has_more;
+      this.igdbOffset = data.igdb_offset;
+      this.hasCredentials = data.has_credentials;
 
-      if (offset === 0) {
-        this.queue = newGames;
-      } else {
-        const existingIds = new Set(this.queue.map(g => g.igdb_id));
-        const filtered = newGames.filter(g => !existingIds.has(g.igdb_id));
-        this.queue.push(...filtered);
-      }
+      // A deck fetch can pull a fresh page from IGDB, which grows total_cached
+      // for this year - so the progress denominator is stale until we re-read
+      // the stats. Cheap here (once per year load or Load More), unlike the
+      // per-swipe refresh this replaced.
+      await this.refreshStats();
 
-      this.updateProgressBadge();
-      this.renderInitialStack();
-      this.setStatus(`Ready. ${this.queue.length} games in queue for ${year}.`);
+      this.renderStack();
+      this.setStatus(
+        this.queue.length
+          ? `Ready. ${this.queue.length} games queued for ${this.currentYear}.`
+          : `No unreviewed games left for ${this.currentYear}.`
+      );
     } catch (err) {
-      console.error(err);
-      this.setStatus(`Error loading ${year}. Using cached data.`);
-      this.updateProgressBadge();
-      this.renderInitialStack();
+      this.queue = [];
+      this.renderStack();
+      this.setStatus(`Could not load ${this.currentYear}: ${err.message}`, true);
     }
   }
 
-  loadNextBatchForCurrentYear() {
+  /**
+   * Append the next page to the queue without disturbing the visible stack.
+   * Runs automatically as the deck gets low, so swiping never stalls.
+   */
+  async extendDeck() {
+    if (this.extending) return;
+    this.extending = true;
+    try {
+      const data = await API.getDeck(this.currentYear, PAGE_SIZE, this.igdbOffset);
+      this.hasMoreForYear = data.has_more;
+      this.igdbOffset = data.igdb_offset;
+
+      const known = new Set(this.queue.map(g => g.igdb_id));
+      const fresh = data.games.filter(g => !known.has(g.igdb_id));
+      if (fresh.length) {
+        this.queue.push(...fresh);
+        await this.refreshStats();   // the cache may have grown; move the bar
+        this.restack();
+      }
+    } catch {
+      // a failed top-up is not worth interrupting the user over; Load More
+      // is still there if the deck does run dry
+    } finally {
+      this.extending = false;
+    }
+  }
+
+  /** Explicit "Download Next 30" from the empty state. */
+  async loadMore() {
     this.playSound('click');
-    const nextOffset = this.currentOffset + 30;
-    this.loadYear(this.currentYear, nextOffset);
+    this.setStatus('Fetching more games from IGDB...');
+    await this.fetchDeck();
   }
 
   advanceToNextYear() {
     this.playSound('click');
-    const nextYear = this.currentYear + 1;
-    const maxYear = new Date().getFullYear();
-    if (nextYear <= maxYear) {
-      this.loadYear(nextYear, 0);
-    } else {
-      this.loadYear(1980, 0);
-    }
+    const next = this.currentYear + 1;
+    this.loadYear(next <= new Date().getFullYear() ? next : 1980);
   }
 
-  // =========================================================================
-  // 5-Card Stack & Desktop Inspector
-  // =========================================================================
-  clearDeckDOM() {
-    const container = document.getElementById('deck-container');
-    const existingCards = container.querySelectorAll('.game-card');
-    existingCards.forEach(c => c.remove());
-    this.renderedCards = [];
-  }
-
-  renderInitialStack() {
-    const container = document.getElementById('deck-container');
-    const emptyState = document.getElementById('deck-empty');
-
-    if (this.queue.length === 0) {
-      if (emptyState) {
-        emptyState.classList.add('visible');
-        document.getElementById('empty-year-name').textContent = this.currentYear;
-        document.getElementById('empty-next-year-btn').textContent = `Advance to ${this.currentYear + 1}`;
-      }
-      if (this.gestures) this.gestures.attachTopCard(null);
-      this.updateInspector(null);
-      this.updateRemainingCount();
+  async runSearch(query) {
+    if (!query.trim()) {
+      this.loadYear(this.currentYear);
       return;
     }
 
-    if (emptyState) emptyState.classList.remove('visible');
+    this.playSound('click');
+    this.setStatus(`Searching for "${query}"...`);
+    try {
+      const data = await API.searchGames(query);
+      this.mode = 'search';
+      this.searchQuery = query;
+      this.queue = data.games;
+      this.hasMoreForYear = false;
+      await this.refreshStats();   // search caches new games too
+      this.renderStack();
 
-    const initialBatch = this.queue.slice(0, 5);
-    initialBatch.forEach((game, index) => {
-      const cardEl = this.createCardElement(game, index);
-      container.appendChild(cardEl);
-      this.renderedCards.push(cardEl);
-    });
-
-    if (this.renderedCards.length > 0) {
-      this.gestures.attachTopCard(this.renderedCards[0]);
-      this.updateInspector(this.queue[0]);
+      this.setStatus(
+        this.queue.length
+          ? `${this.queue.length} result${this.queue.length === 1 ? '' : 's'} for "${query}". Swipe as usual.`
+          : `Nothing found for "${query}".`
+      );
+    } catch (err) {
+      this.setStatus(`Search failed: ${err.message}`, true);
     }
-    this.updateRemainingCount();
   }
 
-  createCardElement(game, index) {
-    const card = document.createElement('div');
-    card.className = 'game-card';
-    card.dataset.index = index;
+  // =========================================================================
+  // Card stack
+  // =========================================================================
+  renderStack() {
+    const container = $('deck-container');
+    container.querySelectorAll('.game-card').forEach(c => c.remove());
+    this.renderedCards = [];
+
+    this.queue.slice(0, STACK_SIZE).forEach(game => {
+      const card = this.buildCard(game);
+      container.appendChild(card);
+      this.renderedCards.push(card);
+    });
+
+    this.restack();
+  }
+
+  /** Re-apply stack depth indices and sync the top card, inspector and counts. */
+  restack() {
+    this.renderedCards.forEach((card, i) => { card.dataset.index = i; });
+
+    const top = this.renderedCards[0] || null;
+    this.gestures.attachTopCard(top);
+    this.updateInspector(top ? this.queue[0] : null);
+
+    $('deck-empty').classList.toggle('visible', this.renderedCards.length === 0);
+    if (!this.renderedCards.length) this.updateEmptyState();
+
+    $('status-queue').textContent = `Cards Left: ${this.queue.length}`;
+    this.updateProgress();
+  }
+
+  updateEmptyState() {
+    const isSearch = this.mode === 'search';
+    const noKeys = !this.hasCredentials;
+
+    // An unconfigured app has no games for a reason that has nothing to do
+    // with the year, so it gets its own wording rather than "Year Complete!".
+    const exhausted = !this.hasMoreForYear && !isSearch && !noKeys;
+
+    if (noKeys) {
+      $('empty-heading').textContent = 'Almost there';
+      $('empty-message').textContent = 'XP-Deck needs to be connected to the game database before it can show you anything.';
+    } else if (isSearch) {
+      $('empty-heading').textContent = 'No Results';
+      $('empty-message').textContent = `Nothing matched "${this.searchQuery || ''}".`;
+    } else {
+      $('empty-heading').textContent = 'Year Complete!';
+      $('empty-message').textContent = `You have reviewed all available titles for ${this.currentYear}.`;
+    }
+
+    const note = $('empty-note');
+    note.hidden = !exhausted;
+    if (exhausted) note.textContent = 'No additional games found on IGDB for this year.';
+
+    const loadMore = $('empty-load-more-btn');
+    loadMore.hidden = noKeys;
+    loadMore.disabled = isSearch || exhausted;
+    loadMore.textContent = exhausted ? 'No More Games on IGDB' : 'Download Next 30 Games';
+
+    const nextYear = $('empty-next-year-btn');
+    nextYear.hidden = isSearch || noKeys;
+    nextYear.textContent = `Advance to ${this.currentYear + 1}`;
+
+    const setupBtn = $('empty-setup-btn');
+    setupBtn.hidden = !noKeys;
+  }
+
+  buildCard(game) {
+    const { el: card, r } = clone('tpl-card');
+    const d = displayFields(game);
+
     card.dataset.id = game.igdb_id;
 
-    const coverUrl = game.cover_url || 'https://images.igdb.com/igdb/image/upload/t_cover_big/nocover.png';
-    const ratingDisplay = game.rating ? `★ ${game.rating}` : '★ Unrated';
-    const genresDisplay = game.genres || 'Video Game';
-    const platformsDisplay = game.platforms || 'Multiple Platforms';
+    r.cover.src = game.cover_url || '';
+    r.cover.alt = `${game.title} cover art`;
+    hideOnError(r.cover);   // a missing cover leaves the dark card background
 
-    // Store search links
-    const steamUrl = `https://store.steampowered.com/search/?term=${encodeURIComponent(game.title)}`;
-    const gogUrl = `https://www.gog.com/en/games?query=${encodeURIComponent(game.title)}`;
-    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(game.title + ' video game')}`;
+    r.rating.textContent = d.rating;
+    r.year.textContent = d.year;
+    r.genre.textContent = d.primaryGenre;
+    r.title.textContent = game.title;
+    r.platforms.textContent = d.platforms;
 
-    // Screenshots gallery for card back
-    let screenshotsHtml = '';
-    if (Array.isArray(game.screenshots) && game.screenshots.length > 0) {
-      screenshotsHtml = `
-        <div class="screenshots-title">${XPIcons.picture} Screenshots Preview:</div>
-        <div class="card-back-screenshots">
-          ${game.screenshots.map((s, sIdx) => `
-            <img class="screenshot-thumb" src="${s}" alt="screenshot" data-sidx="${sIdx}">
-          `).join('')}
-        </div>
-      `;
-    }
+    r.backTitle.textContent = `${game.title} (${d.year})`;
+    r.sub.textContent = `${d.rating} • ${d.primaryGenre} • ${d.primaryPlatform}`;
+    r.summary.textContent = game.summary || 'No description available for this title.';
 
-    card.innerHTML = `
-      <div class="stamp-badge stamp-played">PLAYED</div>
-      <div class="stamp-badge stamp-skipped">SKIPPED</div>
-      <div class="stamp-badge stamp-backlog">BACKLOG</div>
+    const links = gameLinks(game.title);
+    r.steam.href = links.steam;
+    r.gog.href = links.gog;
+    r.google.href = links.google;
 
-      <div class="card-inner">
-        <!-- Front Side -->
-        <div class="card-front">
-          <img class="card-cover" src="${coverUrl}" alt="${game.title}" loading="lazy" onerror="this.src='https://images.igdb.com/igdb/image/upload/t_cover_big/nocover.png'">
-          <div class="card-front-overlay">
-            <div class="card-badges-row">
-              <span class="card-pill pill-rating">${ratingDisplay}</span>
-              <span class="card-pill pill-year">${game.release_year}</span>
-              <span class="card-pill pill-genres">${genresDisplay.split(',')[0]}</span>
-            </div>
-            <h2 class="card-title">${game.title}</h2>
-            <div class="card-platforms">${platformsDisplay}</div>
-            <div class="card-hint">
-              ${XPIcons.flip} <span>Tap card to flip for details</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Back Side - High Readability -->
-        <div class="card-back">
-          <div class="card-back-header">
-            <span>${XPIcons.floppy} ${game.title} (${game.release_year})</span>
-            <span class="card-back-close" title="Flip Back">✕</span>
-          </div>
-          <div class="card-back-content">
-            <div class="card-back-sub">
-              ★ ${game.rating || 'Unrated'} • ${genresDisplay.split(',')[0]} • ${platformsDisplay.split(',')[0]}
-            </div>
-
-            <!-- Prominent, Large Readable Description -->
-            <div class="card-back-summary">
-              ${game.summary || 'No detailed description available for this title.'}
-            </div>
-
-            <!-- Bottom Action & Store Strip -->
-            <div class="card-back-footer">
-              <div class="xp-store-buttons" style="border: none; padding: 0;">
-                <a href="${steamUrl}" target="_blank" rel="noopener noreferrer" class="xp-button store-btn" style="color: #002244;">
-                  ${XPIcons.external} Steam
-                </a>
-                <a href="${gogUrl}" target="_blank" rel="noopener noreferrer" class="xp-button store-btn" style="color: #4A148C;">
-                  ${XPIcons.external} GOG
-                </a>
-                <a href="${googleUrl}" target="_blank" rel="noopener noreferrer" class="xp-button store-btn">
-                  ${XPIcons.search} Google
-                </a>
-              </div>
-
-              ${Array.isArray(game.screenshots) && game.screenshots.length > 0 ? `
-                <button class="xp-button store-btn view-shots-btn" style="color: #003399;">
-                  ${XPIcons.picture} Screenshots (${game.screenshots.length})
-                </button>
-              ` : ''}
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    // Click handler for Screenshots button on card back
-    const shotsBtn = card.querySelector('.view-shots-btn');
-    if (shotsBtn) {
-      shotsBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.openPictureViewer(game.screenshots, 0, game.title);
+    // The card back is the only screenshot gallery on mobile, where the
+    // inspector pane is hidden.
+    const shots = game.screenshots || [];
+    if (shots.length) {
+      r.shotsWrap.hidden = false;
+      shots.forEach((src, i) => {
+        const img = document.createElement('img');
+        img.className = 'screenshot-thumb';
+        img.src = src;
+        img.alt = `${game.title} screenshot ${i + 1}`;
+        img.dataset.idx = i;
+        r.shots.appendChild(img);
+      });
+      r.shots.addEventListener('click', (e) => {
+        const thumb = e.target.closest('.screenshot-thumb');
+        if (thumb) this.openViewer(shots, Number(thumb.dataset.idx), game.title);
       });
     }
 
-    const closeBtn = card.querySelector('.card-back-close');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this.flipTopCard();
-      });
-    }
+    card.querySelector('.card-back-close')
+      .addEventListener('click', () => this.flipTopCard());
 
     return card;
   }
 
-  // =========================================================================
-  // Desktop Inspector Panel (Right Pane on PC)
-  // =========================================================================
-  updateInspector(game) {
-    const inspector = document.getElementById('desktop-inspector');
-    if (!inspector) return;
-
-    if (!game) {
-      inspector.innerHTML = `
-        <div class="xp-inspector-header">
-          <span>${XPIcons.info} Live Game Inspector</span>
-        </div>
-        <div class="xp-inspector-body" style="align-items: center; justify-content: center; text-align: center; color: #777;">
-          <p>No active game selected in deck.</p>
-        </div>
-      `;
-      return;
-    }
-
-    const ratingDisplay = game.rating ? `★ ${game.rating}` : '★ Unrated';
-    const genresDisplay = game.genres || 'Video Game';
-    const platformsDisplay = game.platforms || 'Multiple Platforms';
-
-    const steamUrl = `https://store.steampowered.com/search/?term=${encodeURIComponent(game.title)}`;
-    const gogUrl = `https://www.gog.com/en/games?query=${encodeURIComponent(game.title)}`;
-    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(game.title + ' video game')}`;
-
-    let screenshotsMarkup = '';
-    if (Array.isArray(game.screenshots) && game.screenshots.length > 0) {
-      screenshotsMarkup = `
-        <div>
-          <div style="font-weight: bold; font-size: 11px; margin-bottom: 6px;">
-            ${XPIcons.picture} Screenshots Gallery (Click to view full size):
-          </div>
-          <div class="xp-inspector-screenshots">
-            ${game.screenshots.map((s, idx) => `
-              <img src="${s}" alt="screenshot" data-sidx="${idx}" class="inspector-thumb">
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    inspector.innerHTML = `
-      <div class="xp-inspector-header">
-        <span>${XPIcons.gamepad} Live Inspector: ${game.title}</span>
-        <span style="font-size: 11px; opacity: 0.85;">${game.release_year}</span>
-      </div>
-      <div class="xp-inspector-body">
-        <div class="xp-inspector-title-row">
-          <div>
-            <div class="xp-inspector-title">${game.title}</div>
-            <div style="font-size: 11px; color: #555; margin-top: 2px;">
-              ${platformsDisplay}
-            </div>
-          </div>
-          <span class="card-pill pill-rating" style="font-size: 12px;">${ratingDisplay}</span>
-        </div>
-
-        <!-- External Store & Search Links -->
-        <div class="xp-store-buttons">
-          <span style="font-size: 11px; font-weight: bold; margin-right: 4px; align-self: center;">Game Links:</span>
-          <a href="${steamUrl}" target="_blank" rel="noopener noreferrer" class="xp-button store-btn" style="color: #002244;">
-            ${XPIcons.external} Search Steam
-          </a>
-          <a href="${gogUrl}" target="_blank" rel="noopener noreferrer" class="xp-button store-btn" style="color: #4A148C;">
-            ${XPIcons.external} Search GOG
-          </a>
-          <a href="${googleUrl}" target="_blank" rel="noopener noreferrer" class="xp-button store-btn">
-            ${XPIcons.search} Google Search
-          </a>
-        </div>
-
-        <!-- Clear, High-Contrast Description -->
-        <div>
-          <div style="font-weight: bold; font-size: 11px; margin-bottom: 4px;">Game Synopsis:</div>
-          <div class="xp-inspector-desc-box">
-            ${game.summary || 'No detailed description available for this title.'}
-          </div>
-        </div>
-
-        <div class="xp-inspector-meta">
-          <div class="meta-box">
-            <strong>Genres:</strong>
-            <span>${genresDisplay}</span>
-          </div>
-          <div class="meta-box">
-            <strong>IGDB Community Rating:</strong>
-            <span>${ratingDisplay} (${game.total_rating_count || 0} reviews)</span>
-          </div>
-        </div>
-
-        ${screenshotsMarkup}
-      </div>
-    `;
-
-    // Attach click listeners to inspector thumbnails
-    const thumbs = inspector.querySelectorAll('.inspector-thumb');
-    thumbs.forEach(t => {
-      t.addEventListener('click', () => {
-        const sIdx = parseInt(t.dataset.sidx, 10) || 0;
-        this.openPictureViewer(game.screenshots, sIdx, game.title);
-      });
-    });
-  }
-
-  // =========================================================================
-  // In-Page Windows Picture and Fax Viewer Modal
-  // =========================================================================
-  openPictureViewer(screenshots, initialIndex = 0, title = 'Screenshot') {
-    if (!screenshots || screenshots.length === 0) return;
-    this.playSound('click');
-
-    this.currentViewerImages = screenshots;
-    this.currentViewerIndex = Math.max(0, Math.min(initialIndex, screenshots.length - 1));
-
-    const modal = document.getElementById('modal-picture-viewer');
-    const titleEl = document.getElementById('viewer-title');
-    const imgEl = document.getElementById('viewer-img');
-    const counterEl = document.getElementById('viewer-counter');
-
-    if (titleEl) titleEl.textContent = `Windows Picture and Fax Viewer - ${title}`;
-    if (imgEl) imgEl.src = this.currentViewerImages[this.currentViewerIndex];
-    if (counterEl) counterEl.textContent = `${this.currentViewerIndex + 1} / ${this.currentViewerImages.length}`;
-
-    if (modal) modal.classList.add('open');
-  }
-
-  navigateViewer(delta) {
-    if (!this.currentViewerImages || this.currentViewerImages.length === 0) return;
-    this.playSound('click');
-
-    this.currentViewerIndex = (this.currentViewerIndex + delta + this.currentViewerImages.length) % this.currentViewerImages.length;
-    const imgEl = document.getElementById('viewer-img');
-    const counterEl = document.getElementById('viewer-counter');
-
-    if (imgEl) imgEl.src = this.currentViewerImages[this.currentViewerIndex];
-    if (counterEl) counterEl.textContent = `${this.currentViewerIndex + 1} / ${this.currentViewerImages.length}`;
-  }
-
-  // =========================================================================
-  // Swiping & Gestures
-  // =========================================================================
-  initGestures() {
-    const container = document.getElementById('deck-container');
-    this.gestures = new CardGestures(
-      container,
-      (card, action) => this.onCardSwiped(card, action),
-      (card) => this.onCardFlipped(card)
-    );
-  }
-
-  onCardFlipped(card) {
-    this.playSound('click');
-    card.classList.toggle('flipped');
-  }
-
   flipTopCard() {
-    if (this.renderedCards.length > 0) {
-      this.onCardFlipped(this.renderedCards[0]);
-    }
+    const top = this.renderedCards[0];
+    if (!top) return;
+    this.playSound('click');
+    top.classList.toggle('flipped');
   }
 
   handleSwipeAction(action) {
-    if (this.renderedCards.length === 0) return;
     this.gestures.triggerAction(action);
   }
 
   onCardSwiped(cardEl, action) {
-    this.playSound(action === 'played' ? 'ding' : 'whoosh');
+    this.playSound(action);
 
-    const swipedGame = this.queue.shift();
+    const game = this.queue.shift();
     this.renderedCards.shift();
 
-    if (action === 'played' && swipedGame) {
-      this.openQuickTag(swipedGame);
-    } else if (swipedGame) {
-      this.commitSwipe(swipedGame.igdb_id, action);
+    if (game) {
+      if (action === 'played') this.openQuickTag(game);
+      else this.commitSwipe(game, action);
     }
 
-    setTimeout(() => {
-      cardEl.remove();
-      this.shiftDeckStack();
-    }, 250);
+    // let the fly-off animation finish before the node goes away
+    setTimeout(() => cardEl.remove(), 300);
+    this.topUpStack();
   }
 
-  shiftDeckStack() {
-    const container = document.getElementById('deck-container');
-
-    this.renderedCards.forEach((card, idx) => {
-      card.dataset.index = idx;
-    });
-
-    if (this.queue.length >= this.renderedCards.length && this.renderedCards.length < 5) {
-      const nextGameIndex = this.renderedCards.length;
-      const nextGame = this.queue[nextGameIndex];
-      if (nextGame) {
-        const newCard = this.createCardElement(nextGame, this.renderedCards.length);
-        container.appendChild(newCard);
-        this.renderedCards.push(newCard);
-      }
+  topUpStack() {
+    if (this.mode === 'year' && this.queue.length <= REFILL_AT && this.hasMoreForYear) {
+      this.extendDeck();
     }
 
-    if (this.renderedCards.length > 0) {
-      this.gestures.attachTopCard(this.renderedCards[0]);
-      this.updateInspector(this.queue[0]);
-    } else {
-      this.gestures.attachTopCard(null);
-      this.updateInspector(null);
-      const emptyState = document.getElementById('deck-empty');
-      if (emptyState) {
-        emptyState.classList.add('visible');
-        document.getElementById('empty-year-name').textContent = this.currentYear;
-        document.getElementById('empty-next-year-btn').textContent = `Advance to ${this.currentYear + 1}`;
+    if (this.renderedCards.length < STACK_SIZE) {
+      const next = this.queue[this.renderedCards.length];
+      if (next) {
+        const card = this.buildCard(next);
+        $('deck-container').appendChild(card);
+        this.renderedCards.push(card);
       }
     }
-
-    this.updateRemainingCount();
+    this.restack();
   }
 
-  async commitSwipe(igdbId, status, platform = null, hours = null, rating = null) {
+  /** Put a game back on top of the deck (undo, or a failed save). */
+  restoreToDeck(game) {
+    if (this.queue.some(g => g.igdb_id === game.igdb_id)) return;
+
+    this.queue.unshift(game);
+    const card = this.buildCard(game);
+    card.classList.add('card-returning');
+    $('deck-container').insertBefore(card, $('deck-container').firstElementChild);
+    this.renderedCards.unshift(card);
+
+    // drop any card pushed past the visible stack depth
+    while (this.renderedCards.length > STACK_SIZE) {
+      this.renderedCards.pop().remove();
+    }
+    requestAnimationFrame(() => card.classList.remove('card-returning'));
+    this.restack();
+  }
+
+  /**
+   * Save a swipe. The card has already flown off - that snappiness is the
+   * point - so a failed write puts the game back rather than losing it.
+   */
+  async commitSwipe(game, status, details = {}) {
     try {
-      await API.recordSwipe(igdbId, status, platform, hours, rating);
-      await this.refreshStats();
+      await API.recordSwipe(
+        game.igdb_id, status, details.platform, details.hours, details.rating
+      );
+      this.applyStatDelta(status, 1, game.release_year);
     } catch (err) {
-      console.error('Error saving swipe:', err);
-      this.setStatus('Error saving swipe to database.');
+      this.playSound('error');
+      this.restoreToDeck(game);
+      this.setStatus(`Could not save "${game.title}" - card returned to the deck. ${err.message}`, true);
     }
   }
 
   // =========================================================================
-  // Quick-Tag Popover with Adjustable & Persisted Duration
+  // Quick-tag popover
   // =========================================================================
   openQuickTag(game) {
-    if (this.pendingPlayedGame) {
-      this.savePendingQuickTag();
-    }
+    if (this.pendingPlayedGame) this.finishQuickTag(true);
 
     this.pendingPlayedGame = game;
     this.selectedRating = null;
     this.quickTagActive = true;
 
-    const popover = document.getElementById('quicktag-popover');
-    const titleEl = document.getElementById('quicktag-title');
-    const timerTextEl = document.getElementById('quicktag-timer');
-    const platformSelect = document.getElementById('quicktag-platform');
-    const fillEl = document.getElementById('quicktag-timer-fill');
-
-    if (!popover) return;
-    if (titleEl) titleEl.textContent = `Tagged: ${game.title}`;
-
-    // Populate platform options
-    if (platformSelect) {
-      platformSelect.innerHTML = '<option value="">(Select Platform)</option>';
-      if (game.platforms) {
-        const list = game.platforms.split(',').map(p => p.trim());
-        list.forEach(p => {
-          const opt = document.createElement('option');
-          opt.value = p;
-          opt.textContent = p;
-          platformSelect.appendChild(opt);
-        });
-        if (list.length > 0) platformSelect.value = list[0];
-      }
+    // Touching the popover at all means the swipe was deliberate, so stop the
+    // countdown and let the user take as long as they like. An accidental
+    // swipe is never touched, so it still auto-saves and clears itself.
+    this.quickTagAbort?.abort();
+    this.quickTagAbort = new AbortController();
+    const popoverEl = $('quicktag-popover');
+    for (const evt of ['pointerdown', 'keydown', 'input', 'change']) {
+      popoverEl.addEventListener(evt, () => this.stopQuickTagTimer(),
+        { signal: this.quickTagAbort.signal });
     }
 
-    const ratingBtns = popover.querySelectorAll('.rating-btn');
-    ratingBtns.forEach(b => b.classList.remove('active'));
+    $('quicktag-title').textContent = `Tagged: ${game.title}`;
+    $('quicktag-hours').value = '';
 
-    popover.classList.add('visible');
+    const platforms = $('quicktag-platform');
+    platforms.replaceChildren(new Option('(Select Platform)', ''));
+    (game.platforms || '').split(',').map(p => p.trim()).filter(Boolean)
+      .forEach((p, i) => {
+        platforms.add(new Option(p, p));
+        if (i === 0) platforms.value = p;
+      });
 
-    if (this.quickTagTimer) clearTimeout(this.quickTagTimer);
+    this.setRatingButtons(null);
+    $('quicktag-popover').classList.add('visible');
+    this.armQuickTagTimer(this.ratingDurationSeconds);
+  }
 
-    // If duration is 0, operate in manual mode (never auto-saves without user action)
-    if (this.ratingDurationSeconds <= 0) {
-      if (timerTextEl) timerTextEl.textContent = 'Manual mode (Click Save when done)';
-      if (fillEl) fillEl.style.width = '100%';
-    } else {
-      const durSec = this.ratingDurationSeconds;
-      if (timerTextEl) timerTextEl.textContent = `Auto-saving in ${durSec}s...`;
+  /** Start (or restart) the auto-save countdown. 0 seconds means manual. */
+  armQuickTagTimer(seconds) {
+    clearTimeout(this.quickTagTimer);
+    const fill = $('quicktag-timer-fill');
+    const label = $('quicktag-timer');
 
-      if (fillEl) {
-        fillEl.style.transition = 'none';
-        fillEl.style.width = '100%';
-        void fillEl.offsetWidth;
-        fillEl.style.transition = `width ${durSec}s linear`;
-        fillEl.style.width = '0%';
-      }
+    this.quickTagTimer = null;
+    fill.classList.remove('paused');
 
-      this.quickTagTimer = setTimeout(() => {
-        this.savePendingQuickTag();
-      }, durSec * 1000);
+    if (seconds <= 0) {
+      label.textContent = 'Manual - click Save when done';
+      fill.style.transition = 'none';
+      fill.style.width = '100%';
+      return;
     }
+
+    label.textContent = `Auto-saving in ${seconds}s...`;
+    fill.style.transition = 'none';
+    fill.style.width = '100%';
+    fill.getBoundingClientRect();           // flush, so the transition restarts
+    fill.style.transition = `width ${seconds}s linear`;
+    fill.style.width = '0%';
+
+    this.quickTagTimer = setTimeout(() => this.finishQuickTag(true), seconds * 1000);
+  }
+
+  /** Cancel the countdown, freezing the bar where it stands. */
+  stopQuickTagTimer() {
+    if (!this.quickTagTimer) return;   // already stopped, or manual mode
+    clearTimeout(this.quickTagTimer);
+    this.quickTagTimer = null;
+
+    const fill = $('quicktag-timer-fill');
+    fill.style.width = getComputedStyle(fill).width;   // freeze mid-transition
+    fill.style.transition = 'none';
+    fill.classList.add('paused');
+    $('quicktag-timer').textContent = 'Timer stopped - save when ready';
   }
 
   setQuickRating(rating) {
     this.selectedRating = rating;
-    const popover = document.getElementById('quicktag-popover');
-    if (!popover) return;
-    const ratingBtns = popover.querySelectorAll('.rating-btn');
-    ratingBtns.forEach(b => {
-      b.classList.toggle('active', parseInt(b.dataset.val, 10) === rating);
-    });
-
-    // Reset countdown slightly if in timed mode
-    if (this.ratingDurationSeconds > 0) {
-      if (this.quickTagTimer) clearTimeout(this.quickTagTimer);
-      const remainingSec = Math.min(this.ratingDurationSeconds, 4);
-      const fillEl = document.getElementById('quicktag-timer-fill');
-      const timerTextEl = document.getElementById('quicktag-timer');
-
-      if (timerTextEl) timerTextEl.textContent = `Auto-saving in ${remainingSec}s...`;
-      if (fillEl) {
-        fillEl.style.transition = 'none';
-        fillEl.style.width = '100%';
-        void fillEl.offsetWidth;
-        fillEl.style.transition = `width ${remainingSec}s linear`;
-        fillEl.style.width = '0%';
-      }
-      this.quickTagTimer = setTimeout(() => {
-        this.savePendingQuickTag();
-      }, remainingSec * 1000);
-    }
+    this.setRatingButtons(rating);
+    // Picking a rating counts as interacting, so the countdown stops. It used
+    // to *shorten* to a few seconds, which rushed anyone adding hours too.
+    this.stopQuickTagTimer();
   }
 
-  savePendingQuickTag() {
-    if (!this.pendingPlayedGame) return;
+  setRatingButtons(rating) {
+    document.querySelectorAll('.rating-btn').forEach(btn => {
+      const on = Number(btn.dataset.val) === rating;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    });
+  }
 
-    if (this.quickTagTimer) {
-      clearTimeout(this.quickTagTimer);
-      this.quickTagTimer = null;
-    }
+  /**
+   * Close the popover. The swipe itself is always saved - the user did mark
+   * the game played - `withDetails` only decides whether the platform, hours
+   * and rating go with it.
+   */
+  finishQuickTag(withDetails) {
+    const game = this.pendingPlayedGame;
+    if (!game) return;
 
-    const platformSelect = document.getElementById('quicktag-platform');
-    const hoursInput = document.getElementById('quicktag-hours');
-    const popover = document.getElementById('quicktag-popover');
-
-    const platform = platformSelect ? platformSelect.value : null;
-    const hours = hoursInput && hoursInput.value ? parseInt(hoursInput.value, 10) : null;
-    const rating = this.selectedRating;
-
-    this.commitSwipe(this.pendingPlayedGame.igdb_id, 'played', platform, hours, rating);
-
+    clearTimeout(this.quickTagTimer);
+    this.quickTagTimer = null;
+    this.quickTagAbort?.abort();
     this.pendingPlayedGame = null;
     this.quickTagActive = false;
-    if (popover) popover.classList.remove('visible');
-    if (hoursInput) hoursInput.value = '';
+    $('quicktag-popover').classList.remove('visible');
+
+    const hours = parseInt($('quicktag-hours').value, 10);
+    this.commitSwipe(game, 'played', withDetails ? {
+      platform: $('quicktag-platform').value || null,
+      hours: Number.isFinite(hours) ? hours : null,
+      rating: this.selectedRating
+    } : {});
   }
 
   // =========================================================================
-  // Undo Stack
+  // Undo
   // =========================================================================
   async undoLastSwipe() {
-    this.playSound('undo');
-    this.setStatus('Undoing last swipe...');
+    // a pending quick-tag has not been written yet; close it out first so undo
+    // does not race the save
+    if (this.pendingPlayedGame) this.finishQuickTag(true);
 
+    this.playSound('undo');
     try {
       const res = await API.undoSwipe();
       if (!res.success || !res.restored_game) {
-        this.setStatus('No recent swipe to undo.');
+        this.setStatus('Nothing left to undo.');
         return;
       }
 
-      const restoredGame = res.restored_game;
-      this.setStatus(`Restored "${restoredGame.title}".`);
+      const game = res.restored_game;
+      this.applyStatDelta(res.undone_action, -1, game.release_year);
 
-      if (restoredGame.release_year === this.currentYear) {
-        this.queue.unshift(restoredGame);
-
-        const container = document.getElementById('deck-container');
-        const emptyState = document.getElementById('deck-empty');
-        if (emptyState) emptyState.classList.remove('visible');
-
-        const newCard = this.createCardElement(restoredGame, 0);
-        newCard.style.opacity = '0';
-        newCard.style.transform = 'translateY(-30px) scale(0.9)';
-        container.insertBefore(newCard, container.firstChild);
-        this.renderedCards.unshift(newCard);
-
-        void newCard.offsetWidth;
-        newCard.style.transition = 'all 0.3s cubic-bezier(0.2, 0.9, 0.3, 1)';
-        newCard.style.opacity = '1';
-        newCard.style.transform = 'translateY(0) scale(1)';
-
-        this.renderedCards.forEach((c, idx) => c.dataset.index = idx);
-        this.gestures.attachTopCard(this.renderedCards[0]);
-        this.updateInspector(this.renderedCards[0]);
-        this.updateRemainingCount();
+      if (this.mode === 'year' && game.release_year !== this.currentYear) {
+        this.setStatus(`Restored "${game.title}" (${game.release_year}) - switch to that year to see it.`);
       } else {
-        this.setStatus(`Restored "${restoredGame.title}" (${restoredGame.release_year}).`);
+        this.restoreToDeck(game);
+        this.setStatus(`Restored "${game.title}".`);
       }
-
-      await this.refreshStats();
     } catch (err) {
-      console.error(err);
-      this.setStatus('Undo failed.');
+      this.setStatus(`Undo failed: ${err.message}`, true);
     }
   }
 
   // =========================================================================
-  // Catalog Archive Explorer (View, Search, In-Place Edit, Unswipe)
+  // Inspector (desktop right pane)
   // =========================================================================
-  async openCatalogModal(filterStatus = 'all') {
-    this.playSound('click');
-    const modal = document.getElementById('modal-catalog');
-    if (!modal) return;
+  updateInspector(game) {
+    const inspector = $('desktop-inspector');
 
-    // Set active tab
-    const tabs = modal.querySelectorAll('.catalog-tab');
-    tabs.forEach(t => {
-      t.classList.toggle('active', t.dataset.status === filterStatus);
-    });
-
-    modal.classList.add('open');
-    await this.refreshCatalogList();
-  }
-
-  async refreshCatalogList() {
-    const modal = document.getElementById('modal-catalog');
-    if (!modal) return;
-
-    const activeTab = modal.querySelector('.catalog-tab.active');
-    const status = activeTab ? activeTab.dataset.status : 'all';
-    const search = document.getElementById('catalog-search')?.value || '';
-    const sort = document.getElementById('catalog-sort')?.value || 'date_desc';
-
-    const tbody = document.getElementById('catalog-tbody');
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px;">Loading catalog...</td></tr>`;
-
-    try {
-      const data = await API.getCatalog(status, search, sort);
-      const games = data.games || [];
-
-      if (tbody) {
-        if (games.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 24px; color: #666;">No games match your criteria.</td></tr>`;
-          return;
-        }
-
-        tbody.innerHTML = '';
-        games.forEach(g => {
-          const tr = document.createElement('tr');
-          const cover = g.cover_url || 'https://images.igdb.com/igdb/image/upload/t_cover_big/nocover.png';
-          const ratingVal = g.user_rating ? `${g.user_rating}/10` : '-';
-          const hoursVal = g.hours_played ? `${g.hours_played}h` : '-';
-
-          tr.innerHTML = `
-            <td style="width: 44px; text-align: center;">
-              <img src="${cover}" alt="cover" style="width: 32px; height: 42px; object-fit: cover; border: 1px solid #999;">
-            </td>
-            <td>
-              <div style="font-weight: bold; color: #003399;">${g.title}</div>
-              <div style="font-size: 10px; color: #666;">${g.genres || ''}</div>
-            </td>
-            <td style="text-align: center;">${g.release_year}</td>
-            <td style="text-align: center;"><span class="status-pill ${g.status}">${g.status}</span></td>
-            <td style="text-align: center; font-weight: bold;">${ratingVal}</td>
-            <td style="text-align: center;">${hoursVal}</td>
-            <td style="text-align: right; white-space: nowrap;">
-              <button class="xp-button edit-btn" style="padding: 2px 6px; font-size: 11px;">Edit</button>
-            </td>
-          `;
-
-          // Edit Drawer Toggle
-          const editBtn = tr.querySelector('.edit-btn');
-          editBtn.addEventListener('click', () => {
-            this.toggleCatalogEditRow(tr, g);
-          });
-
-          tbody.appendChild(tr);
-        });
-      }
-    } catch (e) {
-      console.error(e);
-      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; padding: 20px; color: red;">Failed to load catalog.</td></tr>`;
-    }
-  }
-
-  toggleCatalogEditRow(parentRow, game) {
-    const existingDrawer = parentRow.nextElementSibling;
-    if (existingDrawer && existingDrawer.classList.contains('drawer-row')) {
-      existingDrawer.remove();
+    if (!game) {
+      inspector.replaceChildren();
       return;
     }
 
-    const drawerRow = document.createElement('tr');
-    drawerRow.className = 'drawer-row';
+    const { frag, r } = clone('tpl-inspector');
+    const d = displayFields(game);
 
-    drawerRow.innerHTML = `
-      <td colspan="7" style="padding: 0; background: #FAF9F5;">
-        <div class="catalog-edit-drawer">
-          <div style="display: flex; flex-direction: column; gap: 2px;">
-            <label style="font-size: 10px; font-weight: bold;">Status:</label>
-            <select class="xp-select edit-status">
-              <option value="played" ${game.status === 'played' ? 'selected' : ''}>Played</option>
-              <option value="backlog" ${game.status === 'backlog' ? 'selected' : ''}>Backlog</option>
-              <option value="skipped" ${game.status === 'skipped' ? 'selected' : ''}>Skipped</option>
-            </select>
-          </div>
+    r.headerTitle.textContent = `Inspector: ${game.title}`;
+    r.headerYear.textContent = d.year;
+    r.title.textContent = game.title;
+    r.platforms.textContent = d.platforms;
+    r.rating.textContent = d.rating;
+    r.summary.textContent = game.summary || 'No description available for this title.';
+    r.genres.textContent = d.genres;
+    r.community.textContent = `${d.rating} (${game.total_rating_count || 0} reviews)`;
 
-          <div style="display: flex; flex-direction: column; gap: 2px;">
-            <label style="font-size: 10px; font-weight: bold;">User Rating (1-10):</label>
-            <input type="number" class="xp-select edit-rating" min="1" max="10" value="${game.user_rating || ''}" style="width: 60px;">
-          </div>
+    const links = gameLinks(game.title);
+    r.steam.href = links.steam;
+    r.gog.href = links.gog;
+    r.google.href = links.google;
 
-          <div style="display: flex; flex-direction: column; gap: 2px;">
-            <label style="font-size: 10px; font-weight: bold;">Platform:</label>
-            <input type="text" class="xp-select edit-platform" value="${game.platform_played || ''}" placeholder="e.g. PC, PS2" style="width: 110px;">
-          </div>
-
-          <div style="display: flex; flex-direction: column; gap: 2px;">
-            <label style="font-size: 10px; font-weight: bold;">Hours Played:</label>
-            <input type="number" class="xp-select edit-hours" min="0" value="${game.hours_played || ''}" placeholder="0" style="width: 60px;">
-          </div>
-
-          <div style="display: flex; gap: 6px; margin-left: auto; align-items: flex-end;">
-            <button class="xp-button xp-button-green save-drawer-btn" style="padding: 4px 10px;">
-              ${XPIcons.check} Save
-            </button>
-            <button class="xp-button xp-button-red delete-drawer-btn" style="padding: 4px 10px;" title="Unswipe game and return to deck">
-              ${XPIcons.trash} Unswipe
-            </button>
-          </div>
-        </div>
-      </td>
-    `;
-
-    parentRow.after(drawerRow);
-
-    // Save button
-    drawerRow.querySelector('.save-drawer-btn').addEventListener('click', async () => {
-      const status = drawerRow.querySelector('.edit-status').value;
-      const rating = drawerRow.querySelector('.edit-rating').value;
-      const platform = drawerRow.querySelector('.edit-platform').value;
-      const hours = drawerRow.querySelector('.edit-hours').value;
-
-      try {
-        await API.updateCatalogItem(game.igdb_id, {
-          status,
-          user_rating: rating ? parseInt(rating, 10) : null,
-          platform_played: platform || null,
-          hours_played: hours ? parseInt(hours, 10) : null
-        });
-        this.playSound('ding');
-        await this.refreshCatalogList();
-        await this.refreshStats();
-      } catch (e) {
-        alert('Failed to update game: ' + e.message);
-      }
-    });
-
-    // Delete (Unswipe) button
-    drawerRow.querySelector('.delete-drawer-btn').addEventListener('click', async () => {
-      if (confirm(`Unswipe "${game.title}"? It will be removed from your catalog and returned to the review pool.`)) {
-        try {
-          await API.deleteCatalogItem(game.igdb_id);
-          this.playSound('whoosh');
-          await this.refreshCatalogList();
-          await this.refreshStats();
-          // Reload current year to make restored game immediately visible if applicable
-          if (game.release_year === this.currentYear) {
-            await this.loadYear(this.currentYear);
-          }
-        } catch (e) {
-          alert('Failed to unswipe game: ' + e.message);
+    const shots = game.screenshots || [];
+    if (shots.length) {
+      r.shotsWrap.hidden = false;
+      shots.forEach((src, i) => {
+        const img = document.createElement('img');
+        img.src = src;
+        img.alt = `${game.title} screenshot ${i + 1}`;
+        img.dataset.idx = i;
+        r.shots.appendChild(img);
+      });
+      r.shots.addEventListener('click', (e) => {
+        if (e.target.dataset.idx) {
+          this.openViewer(shots, Number(e.target.dataset.idx), game.title);
         }
-      }
-    });
+      });
+    }
+
+    inspector.replaceChildren(frag);
   }
 
   // =========================================================================
-  // Danger Zone
+  // Picture viewer
   // =========================================================================
-  async executeReset(scope) {
-    let confirmMsg = '';
-    if (scope === 'year') {
-      confirmMsg = `Are you sure you want to reset all swipes for ${this.currentYear}? This action cannot be undone.`;
-    } else if (scope === 'all_swipes') {
-      confirmMsg = `WARNING: This will clear ALL your swiped history across all years! Your cached games will remain intact. Proceed?`;
-    } else if (scope === 'factory') {
-      confirmMsg = `DANGER: Full Factory Reset! This wipes the database completely and re-initializes defaults. Are you absolutely sure?`;
-    }
-
-    if (!confirm(confirmMsg)) return;
-
+  openViewer(images, index, title) {
+    if (!images?.length) return;
     this.playSound('click');
-    try {
-      await API.resetData(scope, this.currentYear);
-      alert('Reset complete.');
-      this.closeModalsAndPopovers();
-      await this.refreshStats();
-      await this.loadYear(this.currentYear);
-    } catch (e) {
-      alert('Reset error: ' + e.message);
-    }
+    this.viewerImages = images;
+    this.viewerIndex = Math.max(0, Math.min(index, images.length - 1));
+    $('viewer-title').textContent = `Windows Picture and Fax Viewer - ${title}`;
+    this.showViewerImage();
+    $('modal-picture-viewer').classList.add('open');
+  }
+
+  navigateViewer(delta) {
+    if (!this.viewerImages.length) return;
+    const n = this.viewerImages.length;
+    this.viewerIndex = (this.viewerIndex + delta + n) % n;
+    this.playSound('click');
+    this.showViewerImage();
+  }
+
+  showViewerImage() {
+    const img = $('viewer-img');
+    img.src = this.viewerImages[this.viewerIndex];
+    img.alt = `Screenshot ${this.viewerIndex + 1} of ${this.viewerImages.length}`;
+    $('viewer-counter').textContent = `${this.viewerIndex + 1} / ${this.viewerImages.length}`;
   }
 
   // =========================================================================
-  // Stats & Progress Bar
+  // Stats & progress
   // =========================================================================
   async refreshStats() {
     try {
       this.stats = await API.getStats();
-      this.updateProgressBadge();
-      this.renderStatsModal();
-    } catch (e) {
-      console.error('Error refreshing stats:', e);
+      this.updateProgress();
+    } catch (err) {
+      console.error('Stats refresh failed:', err);
     }
   }
 
-  updateProgressBadge() {
-    if (!this.stats || !this.stats.years) return;
-    const yearData = this.stats.years[this.currentYear];
-    const pct = yearData ? yearData.percentage_reviewed : 0;
+  /**
+   * Adjust the cached counts in place. Stats used to be re-fetched after every
+   * single swipe - a full GROUP BY over the cache plus a table re-render, per
+   * card. The server is re-consulted when the stats dialog opens.
+   */
+  applyStatDelta(status, delta, releaseYear) {
+    if (!this.stats) return;
+    this.stats.status_counts[status] = (this.stats.status_counts[status] || 0) + delta;
+    this.stats.total_swipes += delta;
 
-    const bar = document.getElementById('xp-progress-bar');
-    const badge = document.getElementById('xp-progress-badge');
-
-    if (bar) bar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
-    if (badge) badge.textContent = `${pct}%`;
-  }
-
-  updateRemainingCount() {
-    const queueCountEl = document.getElementById('status-queue');
-    if (queueCountEl) {
-      queueCountEl.textContent = `Cards Left: ${this.queue.length}`;
+    // Credit the game's own year, not the selected one - a search result can
+    // come from any year, and crediting the deck's year would skew its bar.
+    const year = this.stats.years[releaseYear];
+    if (year) {
+      year.total_swiped += delta;
+      year[status] = (year[status] || 0) + delta;
     }
+    this.updateProgress();
   }
 
-  setStatus(msg) {
-    const statusEl = document.getElementById('status-message');
-    if (statusEl) statusEl.textContent = msg;
-  }
+  /**
+   * Show "reviewed / cached" rather than a percentage. The cache grows by a
+   * page every time a year runs dry, so a percentage of it could fall while
+   * the user was actively reviewing.
+   */
+  updateProgress() {
+    const year = this.stats?.years?.[this.currentYear];
+    const done = year?.total_swiped ?? 0;
+    const total = year?.total_cached ?? 0;
+    const pct = total ? Math.min(100, (done / total) * 100) : 0;
 
-  // =========================================================================
-  // Controls & Listeners
-  // =========================================================================
-  initControls() {
-    document.getElementById('btn-skip')?.addEventListener('click', () => {
-      this.handleSwipeAction('skipped');
-    });
-
-    document.getElementById('btn-backlog')?.addEventListener('click', () => {
-      this.handleSwipeAction('backlog');
-    });
-
-    document.getElementById('btn-flip')?.addEventListener('click', () => {
-      this.flipTopCard();
-    });
-
-    document.getElementById('btn-played')?.addEventListener('click', () => {
-      this.handleSwipeAction('played');
-    });
-
-    document.getElementById('btn-undo')?.addEventListener('click', () => {
-      this.undoLastSwipe();
-    });
-
-    // Quicktag buttons
-    const ratingBtns = document.querySelectorAll('.rating-btn');
-    ratingBtns.forEach(b => {
-      b.addEventListener('click', (e) => {
-        const val = parseInt(e.target.dataset.val, 10);
-        this.setQuickRating(val);
-      });
-    });
-
-    document.getElementById('btn-quicktag-save')?.addEventListener('click', () => {
-      this.savePendingQuickTag();
-    });
-
-    // End-of-year continuation buttons
-    document.getElementById('empty-load-more-btn')?.addEventListener('click', () => {
-      this.loadNextBatchForCurrentYear();
-    });
-
-    document.getElementById('empty-next-year-btn')?.addEventListener('click', () => {
-      this.advanceToNextYear();
-    });
-
-    // Picture viewer controls
-    document.getElementById('viewer-prev')?.addEventListener('click', () => this.navigateViewer(-1));
-    document.getElementById('viewer-next')?.addEventListener('click', () => this.navigateViewer(1));
-
-    // Catalog controls
-    document.querySelectorAll('.catalog-tab').forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        document.querySelectorAll('.catalog-tab').forEach(t => t.classList.remove('active'));
-        e.target.classList.add('active');
-        this.refreshCatalogList();
-      });
-    });
-
-    document.getElementById('catalog-search')?.addEventListener('input', () => {
-      this.refreshCatalogList();
-    });
-
-    document.getElementById('catalog-sort')?.addEventListener('change', () => {
-      this.refreshCatalogList();
-    });
-
-    // Options slider/input
-    const durationInput = document.getElementById('setting-rating-duration');
-    const durationLabel = document.getElementById('setting-duration-label');
-    if (durationInput && durationLabel) {
-      durationInput.addEventListener('input', (e) => {
-        const val = parseInt(e.target.value, 10);
-        durationLabel.textContent = val === 0 ? 'Manual / Sticky (No auto-save)' : `${val} seconds`;
-      });
-    }
-
-    document.getElementById('btn-save-settings')?.addEventListener('click', () => {
-      const val = parseInt(document.getElementById('setting-rating-duration').value, 10);
-      this.saveSettings(val);
-      this.closeModalsAndPopovers();
-    });
-
-    // Danger Zone buttons
-    document.getElementById('btn-danger-year')?.addEventListener('click', () => this.executeReset('year'));
-    document.getElementById('btn-danger-all')?.addEventListener('click', () => this.executeReset('all_swipes'));
-    document.getElementById('btn-danger-factory')?.addEventListener('click', () => this.executeReset('factory'));
-  }
-
-  initShortcuts() {
-    this.shortcuts = new KeyboardShortcuts(this);
-  }
-
-  // =========================================================================
-  // Menu Bar & Modals
-  // =========================================================================
-  initMenu() {
-    const menuItems = document.querySelectorAll('.xp-menu-item');
-    menuItems.forEach(item => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const wasActive = item.classList.contains('active');
-        menuItems.forEach(m => m.classList.remove('active'));
-        if (!wasActive) item.classList.add('active');
-      });
-    });
-
-    window.addEventListener('click', () => {
-      menuItems.forEach(m => m.classList.remove('active'));
-    });
-
-    // Menu Item Actions
-    document.getElementById('menu-catalog')?.addEventListener('click', () => {
-      this.openCatalogModal('all');
-    });
-
-    document.getElementById('menu-export')?.addEventListener('click', () => {
-      this.openModal('modal-export');
-    });
-
-    document.getElementById('menu-stats')?.addEventListener('click', () => {
-      this.openModal('modal-stats');
-    });
-
-    document.getElementById('menu-options')?.addEventListener('click', () => {
-      this.openModal('modal-options');
-    });
-
-    document.getElementById('menu-danger')?.addEventListener('click', () => {
-      this.openModal('modal-danger');
-    });
-
-    document.getElementById('menu-connect-mobile')?.addEventListener('click', () => {
-      this.openMobileConnectModal();
-    });
-
-    document.getElementById('menu-about')?.addEventListener('click', () => {
-      this.openModal('modal-about');
-    });
-
-    document.getElementById('menu-sound-toggle')?.addEventListener('click', () => {
-      this.toggleSound();
-    });
-
-    document.getElementById('sound-toggle-btn')?.addEventListener('click', () => {
-      this.toggleSound();
-    });
-  }
-
-  initModals() {
-    document.querySelectorAll('.modal-close').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.closeModalsAndPopovers();
-      });
-    });
-
-    document.querySelectorAll('.xp-modal-overlay').forEach(overlay => {
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-          this.closeModalsAndPopovers();
-        }
-      });
-    });
-  }
-
-  openModal(modalId) {
-    this.playSound('click');
-    const modal = document.getElementById(modalId);
-    if (modal) modal.classList.add('open');
-  }
-
-  async openMobileConnectModal() {
-    this.openModal('modal-mobile');
-    try {
-      const info = await API.getNetworkInfo();
-      const url = info.lan_url;
-      document.getElementById('mobile-lan-url').textContent = url;
-      document.getElementById('mobile-lan-link').href = url;
-
-      // QR Code representation using Google Charts API or inline SVG QR
-      const qrImg = document.getElementById('mobile-qr-img');
-      if (qrImg) {
-        qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(url)}`;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  closeModalsAndPopovers() {
-    document.querySelectorAll('.xp-modal-overlay').forEach(m => m.classList.remove('open'));
-    if (this.quickTagActive) {
-      this.savePendingQuickTag();
-    }
+    $('xp-progress-bar').style.width = `${pct}%`;
+    $('xp-progress-badge').textContent = `${done} / ${total}`;
+    $('xp-progress').setAttribute('aria-valuenow', Math.round(pct));
+    $('xp-progress').setAttribute('aria-valuetext', `${done} of ${total} games reviewed`);
   }
 
   renderStatsModal() {
-    const counts = this.stats ? this.stats.status_counts : { played: 0, skipped: 0, backlog: 0 };
-    document.getElementById('stat-played-count').textContent = counts.played;
-    document.getElementById('stat-skipped-count').textContent = counts.skipped;
-    document.getElementById('stat-backlog-count').textContent = counts.backlog;
-    document.getElementById('stat-total-count').textContent = this.stats ? this.stats.total_swipes : 0;
+    const counts = this.stats?.status_counts || {};
+    $('stat-played-count').textContent = counts.played || 0;
+    $('stat-backlog-count').textContent = counts.backlog || 0;
+    $('stat-skipped-count').textContent = counts.skipped || 0;
+    $('stat-total-count').textContent = this.stats?.total_swipes || 0;
 
-    const tableBody = document.getElementById('stats-table-body');
-    if (!tableBody || !this.stats || !this.stats.years) return;
+    const body = $('stats-table-body');
+    body.replaceChildren();
+    Object.values(this.stats?.years || {})
+      .sort((a, b) => b.year - a.year)
+      .forEach(y => {
+        const { frag, r } = clone('tpl-stats-row');
+        r.year.textContent = y.year;
+        r.played.textContent = y.played;
+        r.backlog.textContent = y.backlog;
+        r.skipped.textContent = y.skipped;
+        r.cached.textContent = y.total_cached;
+        r.pct.textContent = `${y.percentage_reviewed}%`;
+        body.appendChild(frag);
+      });
+  }
 
-    tableBody.innerHTML = '';
-    const yearsList = Object.values(this.stats.years).sort((a, b) => b.year - a.year);
+  setStatus(message, isError = false) {
+    const el = $('status-message');
+    el.textContent = message;
+    el.classList.toggle('status-error', isError);
+  }
 
-    yearsList.forEach(y => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td style="font-weight: bold;">${y.year}</td>
-        <td>${y.played}</td>
-        <td>${y.backlog}</td>
-        <td>${y.skipped}</td>
-        <td>${y.total_cached}</td>
-        <td style="font-weight: bold; color: #003399;">${y.percentage_reviewed}%</td>
-      `;
-      tableBody.appendChild(tr);
+  // =========================================================================
+  // Danger zone
+  // =========================================================================
+  showDangerConfirm(scope) {
+    const labels = {
+      year: `every swipe for ${this.currentYear}`,
+      all_swipes: 'all swipe records across every year',
+      factory: 'everything - swipes, cached games and settings'
+    };
+    this.pendingResetScope = scope;
+    this.playSound('click');
+
+    $('danger-scope-desc').textContent = labels[scope];
+    $('danger-menu').hidden = true;
+    $('danger-confirm').hidden = false;
+    $('btn-danger-confirm').hidden = false;
+    $('btn-danger-cancel').hidden = false;
+    $('btn-danger-close').hidden = true;
+  }
+
+  resetDangerPanel() {
+    this.pendingResetScope = null;
+    $('danger-menu').hidden = false;
+    $('danger-confirm').hidden = true;
+    $('btn-danger-confirm').hidden = true;
+    $('btn-danger-cancel').hidden = true;
+    $('btn-danger-close').hidden = false;
+  }
+
+  async executeReset() {
+    const scope = this.pendingResetScope;
+    if (!scope) return;
+
+    try {
+      await API.resetData(scope, scope === 'year' ? this.currentYear : null);
+      this.playSound('played');
+      this.closeModals();
+      await this.refreshStats();
+      await this.loadYear(this.currentYear);
+      this.setStatus('Reset complete.');
+    } catch (err) {
+      this.setStatus(`Reset failed: ${err.message}`, true);
+    }
+  }
+
+  // =========================================================================
+  // Modals & menus
+  // =========================================================================
+  openModal(id) {
+    this.playSound('click');
+    $(id).classList.add('open');
+  }
+
+  closeModals() {
+    document.querySelectorAll('.xp-modal-overlay.open').forEach(m => m.classList.remove('open'));
+    this.resetDangerPanel();
+  }
+
+  /** Escape: cancel the quick-tag details, then close whatever is open. */
+  handleEscape() {
+    if (this.quickTagActive) {
+      this.finishQuickTag(false);
+      this.setStatus('Quick-tag dismissed; game kept as played.');
+      return;
+    }
+    this.closeModals();
+  }
+
+  initModals() {
+    document.querySelectorAll('.modal-close').forEach(btn =>
+      btn.addEventListener('click', () => this.closeModals()));
+
+    document.querySelectorAll('.xp-modal-overlay').forEach(overlay =>
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) this.closeModals();
+      }));
+  }
+
+  initMenu() {
+    const items = document.querySelectorAll('.xp-menu-item');
+    const closeAll = () => items.forEach(m => {
+      m.classList.remove('active');
+      m.setAttribute('aria-expanded', 'false');
     });
+
+    items.forEach(item => {
+      const toggle = (e) => {
+        e.stopPropagation();
+        const wasOpen = item.classList.contains('active');
+        closeAll();
+        if (!wasOpen) {
+          item.classList.add('active');
+          item.setAttribute('aria-expanded', 'true');
+        }
+      };
+      item.addEventListener('click', toggle);
+      item.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); }
+      });
+    });
+    window.addEventListener('click', closeAll);
+
+    const menu = {
+      'menu-catalog': () => { window.location.href = '/catalog'; },
+      'menu-export': () => this.openModal('modal-export'),
+      'menu-danger': () => this.openModal('modal-danger'),
+      'menu-reload': () => window.location.reload(),
+      'menu-stats': () => { this.refreshStats().then(() => this.renderStatsModal()); this.openModal('modal-stats'); },
+      'menu-connect-mobile': () => this.openMobileModal(),
+      'menu-sound-toggle': () => this.toggleSound(),
+      'menu-setup': () => this.openSetup(),
+      'menu-options': () => this.openModal('modal-options'),
+      'menu-shortcuts': () => this.openModal('modal-shortcuts'),
+      'menu-about': () => this.openModal('modal-about')
+    };
+
+    for (const [id, handler] of Object.entries(menu)) {
+      const el = $(id);
+      el.addEventListener('click', handler);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handler(); }
+      });
+    }
+  }
+
+  async openMobileModal() {
+    this.openModal('modal-mobile');
+    try {
+      const { lan_url } = await API.getNetworkInfo();
+      $('mobile-lan-url').textContent = lan_url;
+      $('mobile-lan-link').href = lan_url;
+      // generated by the backend, so the address never leaves this machine
+      $('mobile-qr-img').src = '/api/qr';
+    } catch (err) {
+      $('mobile-lan-url').textContent = `Unavailable: ${err.message}`;
+    }
+  }
+
+  // =========================================================================
+  // Controls
+  // =========================================================================
+  initControls() {
+    const on = (id, event, handler) => $(id).addEventListener(event, handler);
+
+    on('btn-skip', 'click', () => this.handleSwipeAction('skipped'));
+    on('btn-backlog', 'click', () => this.handleSwipeAction('backlog'));
+    on('btn-played', 'click', () => this.handleSwipeAction('played'));
+    on('btn-flip', 'click', () => this.flipTopCard());
+    on('btn-undo', 'click', () => this.undoLastSwipe());
+
+    on('sound-toggle-btn', 'click', () => this.toggleSound());
+
+    on('deck-search-form', 'submit', (e) => {
+      e.preventDefault();
+      $('deck-search').blur();
+      this.runSearch($('deck-search').value);
+    });
+
+    on('empty-load-more-btn', 'click', () => this.loadMore());
+    on('empty-next-year-btn', 'click', () => this.advanceToNextYear());
+    on('empty-setup-btn', 'click', () => this.openSetup());
+
+    on('viewer-prev', 'click', () => this.navigateViewer(-1));
+    on('viewer-next', 'click', () => this.navigateViewer(1));
+
+    // one delegated listener instead of ten
+    document.querySelector('.quicktag-rating-buttons').addEventListener('click', (e) => {
+      const btn = e.target.closest('.rating-btn');
+      if (btn) this.setQuickRating(Number(btn.dataset.val));
+    });
+    on('btn-quicktag-save', 'click', () => this.finishQuickTag(true));
+    on('btn-quicktag-discard', 'click', () => this.finishQuickTag(false));
+
+    const duration = $('setting-rating-duration');
+    duration.addEventListener('input', (e) => this.updateDurationLabel(Number(e.target.value)));
+    on('btn-save-settings', 'click', () => {
+      this.saveSettings(Number(duration.value));
+      this.closeModals();
+    });
+
+    $('danger-menu').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-scope]');
+      if (btn) this.showDangerConfirm(btn.dataset.scope);
+    });
+    on('setup-save-btn', 'click', () => this.saveSetup());
+    on('setup-skip-btn', 'click', () => this.closeModals());
+    on('setup-client-secret', 'keydown', (e) => { if (e.key === 'Enter') this.saveSetup(); });
+    on('setup-client-id', 'keydown', (e) => { if (e.key === 'Enter') $('setup-client-secret').focus(); });
+
+    on('btn-danger-confirm', 'click', () => this.executeReset());
+    on('btn-danger-cancel', 'click', () => this.resetDangerPanel());
   }
 }
 

@@ -1,97 +1,67 @@
 /**
- * SHORTCUTS.JS: Desktop keyboard listeners for rapid swiping and navigation
+ * SHORTCUTS.JS: Desktop keyboard controls for the deck.
  */
+
+// Fields that consume every keystroke.
+const TEXT_FIELDS = 'input, textarea, select, [contenteditable]';
+
+// Controls that consume only Space and Enter. Without this, preventDefault()
+// on Space meant no button in the app could be activated from the keyboard -
+// but blocking every key here would stop swiping after any button click.
+const ACTIVATABLE = 'a, button, [role="button"]';
 
 class KeyboardShortcuts {
   constructor(app) {
     this.app = app;
-    this.init();
+    window.addEventListener('keydown', (e) => this.onKeyDown(e));
   }
 
-  init() {
-    window.addEventListener('keydown', (e) => {
-      // Don't intercept if user is typing in an input or select
-      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
-        if (e.key === 'Escape') {
-          document.activeElement.blur();
-        }
-        return;
-      }
+  onKeyDown(e) {
+    // Escape always applies, even from inside a field
+    if (e.key === 'Escape') {
+      document.activeElement?.blur();
+      this.app.handleEscape();
+      return;
+    }
 
-      // Check for Ctrl+Z (Undo)
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key.toLowerCase() === 'z') {
         e.preventDefault();
         this.app.undoLastSwipe();
-        return;
       }
+      return;
+    }
 
-      const key = e.key;
+    if (e.altKey) return;
 
-      switch (key) {
-        // Played (Right)
-        case 'd':
-        case 'D':
-        case 'ArrowRight':
-          e.preventDefault();
-          this.app.handleSwipeAction('played');
-          break;
+    const active = document.activeElement;
+    if (active?.closest(TEXT_FIELDS)) return;
+    if ((e.key === ' ' || e.key === 'Enter') && active?.closest(ACTIVATABLE)) return;
 
-        // Skipped (Left)
-        case 'a':
-        case 'A':
-        case 'ArrowLeft':
-          e.preventDefault();
-          this.app.handleSwipeAction('skipped');
-          break;
+    // 1-9 rate directly, 0 is 10 - the UI offers a 10 but there is no 10 key
+    if (this.app.quickTagActive && /^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+      this.app.setQuickRating(e.key === '0' ? 10 : Number(e.key));
+      return;
+    }
 
-        // Backlog (Up)
-        case 'w':
-        case 'W':
-        case 'ArrowUp':
-          e.preventDefault();
-          this.app.handleSwipeAction('backlog');
-          break;
+    const actions = {
+      d: () => this.app.handleSwipeAction('played'),
+      arrowright: () => this.app.handleSwipeAction('played'),
+      a: () => this.app.handleSwipeAction('skipped'),
+      arrowleft: () => this.app.handleSwipeAction('skipped'),
+      w: () => this.app.handleSwipeAction('backlog'),
+      arrowup: () => this.app.handleSwipeAction('backlog'),
+      f: () => this.app.flipTopCard(),
+      ' ': () => this.app.flipTopCard(),
+      u: () => this.app.undoLastSwipe()
+    };
 
-        // Flip Card
-        case ' ':
-        case 'f':
-        case 'F':
-        case 'Enter':
-          e.preventDefault();
-          this.app.flipTopCard();
-          break;
-
-        // Undo (single key 'U')
-        case 'u':
-        case 'U':
-          e.preventDefault();
-          this.app.undoLastSwipe();
-          break;
-
-        // Escape (Close popover / modals)
-        case 'Escape':
-          e.preventDefault();
-          this.app.closeModalsAndPopovers();
-          break;
-
-        // Rating keys 1-9
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-        case '6':
-        case '7':
-        case '8':
-        case '9':
-          if (this.app.quickTagActive) {
-            e.preventDefault();
-            this.app.setQuickRating(parseInt(key, 10));
-          }
-          break;
-      }
-    });
+    const action = actions[e.key.toLowerCase()];
+    if (action) {
+      e.preventDefault();
+      action();
+    }
   }
 }
 

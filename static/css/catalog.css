@@ -1,0 +1,313 @@
+/* ==========================================================================
+   CATALOG.CSS: Windows Explorer chrome for the archive page.
+   Shared theme tokens and .catalog-table / .status-pill live in xp-luna.css.
+   ========================================================================== */
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  /* background-color only: a `background` shorthand here would wipe the
+     desktop gradient that xp-luna.css sets on body. */
+  background-color: #004E98;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.explorer-window {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--xp-bg);
+  border: 3px solid var(--xp-title-border);
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+/* Standard buttons toolbar */
+.explorer-toolbar {
+  background: #ECE9D8;
+  border-bottom: 1px solid #D0CCBA;
+  padding: 3px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font-family: var(--xp-font);
+  font-size: 11px;
+  color: #000;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.toolbar-btn:hover {
+  background: #C1D2EE;
+  border-color: #316AC5;
+}
+
+.toolbar-btn:focus-visible {
+  outline: 2px solid #316AC5;
+  outline-offset: 1px;
+}
+
+.toolbar-sep {
+  width: 1px;
+  height: 22px;
+  background: #ACA899;
+  margin: 0 3px;
+}
+
+/* Address bar */
+.address-bar-strip {
+  background: #ECE9D8;
+  border-bottom: 1px solid #ACA899;
+  padding: 2px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.address-box {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: #FFF;
+  border: 1px inset #7F9DB9;
+  padding: 3px 6px;
+  gap: 6px;
+  color: #444;
+}
+
+/* Dual pane layout */
+.explorer-workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.explorer-sidebar {
+  width: 240px;
+  background: linear-gradient(180deg, #7BA2E7 0%, #6375D6 100%);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  flex-shrink: 0;
+  border-right: 1px solid #ACA899;
+}
+
+@media (max-width: 800px) {
+  .explorer-sidebar { display: none; }
+}
+
+.task-panel {
+  background: #FFF;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.task-panel-header {
+  background: linear-gradient(90deg, #215DC6 0%, #5985E1 100%);
+  color: #FFF;
+  font-weight: bold;
+  font-size: 11px;
+  padding: 6px 10px;
+}
+
+.task-panel-body {
+  background: #D6DFF7;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.task-panel-body.plain {
+  background: #FFF;
+}
+
+.task-panel-body p {
+  margin: 0;
+}
+
+.task-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #001A8C;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 3px 4px;
+  border-radius: 2px;
+}
+
+.task-link:hover,
+.task-link.active {
+  background: #B6C7EE;
+  color: #000000;
+  font-weight: bold;
+}
+
+.task-link:focus-visible {
+  outline: 2px solid #FFF;
+  outline-offset: -2px;
+}
+
+/* Main content */
+.explorer-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #FFF;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.content-filter-bar {
+  background: #F4F2E8;
+  border-bottom: 1px solid #D0CCBA;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-group.push-right {
+  margin-left: auto;
+}
+
+.catalog-search-input {
+  width: 220px;
+}
+
+.catalog-table-container {
+  flex: 1;
+  overflow: auto;
+}
+
+.catalog-cover-thumb {
+  width: 44px;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border: 1px solid #7F9DB9;
+  border-radius: 2px;
+  background: #222;
+  display: block;
+}
+
+.row-title {
+  font-weight: bold;
+  font-size: 13px;
+  color: #003399;
+}
+
+.row-meta {
+  font-size: 11px;
+  color: #555;
+  margin-top: 2px;
+}
+
+.cell-center { text-align: center; }
+.cell-right  { text-align: right; }
+.cell-year   { font-weight: bold; color: #333; }
+.cell-rating { font-weight: bold; color: #999; }
+.cell-rating.rated { color: #D97706; }
+
+.row-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.link-btn {
+  padding: 1px 5px;
+  font-size: 10px;
+  text-decoration: none;
+}
+
+.row-btn {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.empty-cell {
+  text-align: center;
+  padding: 40px 20px;
+  color: #666;
+}
+
+.error-text {
+  color: #D13526;
+  font-weight: bold;
+}
+
+/* In-place edit drawer */
+.edit-drawer-cell {
+  padding: 0;
+  background: #F4F2E8;
+}
+
+.edit-drawer {
+  border: 1px solid #316AC5;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 4px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.edit-field .xp-select {
+  padding: 2px 4px;
+}
+
+.edit-narrow  { width: 56px; }
+.edit-medium  { width: 110px; }
+
+.edit-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}

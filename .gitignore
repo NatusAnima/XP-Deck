@@ -3,18 +3,21 @@
 .env.local
 .env.*.local
 
-# Database & SQLite files
-data/*.db
-data/*.sqlite
-data/*.sqlite3
+# Runtime data - the whole folder is generated (database, backups, WAL sidecars).
+# config.py recreates it on first run.
+data/
+
+# Databases anywhere else
 *.db
+*.db-wal
+*.db-shm
+*.sqlite
 *.sqlite3
 
 # Python cache & virtual environments
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
 venv/
 .venv/
 env/

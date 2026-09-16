@@ -1,197 +1,146 @@
 /**
- * GESTURES.JS: Momentum-aware touch and mouse pointer physics for card deck
+ * GESTURES.JS: Pointer-driven swipe physics for the card deck.
  */
 
+// Anything the user should be able to touch without dragging the card.
+const INTERACTIVE = 'a, button, input, select, textarea, label, .card-back-summary, .screenshot-thumb';
+
+const FLY_CLASS = { played: 'fly-right', skipped: 'fly-left', backlog: 'fly-up' };
+
+const DIST_X = 85;      // px before a horizontal swipe commits
+const DIST_Y = 75;      // px before an upward swipe commits
+const VELOCITY = 0.38;  // px/ms - a fast flick commits below the distances
+const TAP_SLOP = 8;     // px of movement still counted as a tap
+
 class CardGestures {
-  constructor(container, onSwipeCallback, onFlipCallback) {
+  constructor(container, onSwipe, onTap) {
     this.container = container;
-    this.onSwipe = onSwipeCallback;
-    this.onFlip = onFlipCallback;
+    this.onSwipe = onSwipe;
+    this.onTap = onTap;
     this.activeCard = null;
 
-    this.isDragging = false;
-    this.startX = 0;
-    this.startY = 0;
-    this.currentX = 0;
-    this.currentY = 0;
-    this.startTime = 0;
+    this.dragging = false;
+    this.start = { x: 0, y: 0, t: 0 };
+    this.delta = { x: 0, y: 0 };
+    this.frame = null;
 
-    this.boundPointerDown = this.handlePointerDown.bind(this);
-    this.boundPointerMove = this.handlePointerMove.bind(this);
-    this.boundPointerUp = this.handlePointerUp.bind(this);
-    this.boundPointerCancel = this.handlePointerCancel.bind(this);
-
-    this.initEvents();
+    container.addEventListener('pointerdown', (e) => this.onDown(e));
+    container.addEventListener('pointermove', (e) => this.onMove(e));
+    container.addEventListener('pointerup', (e) => this.onUp(e));
+    container.addEventListener('pointercancel', () => this.cancel());
   }
 
-  initEvents() {
-    this.container.addEventListener('pointerdown', this.boundPointerDown);
-    this.container.addEventListener('pointermove', this.boundPointerMove);
-    this.container.addEventListener('pointerup', this.boundPointerUp);
-    this.container.addEventListener('pointercancel', this.boundPointerCancel);
+  attachTopCard(card) {
+    this.activeCard = card;
   }
 
-  attachTopCard(cardElement) {
-    this.activeCard = cardElement;
-  }
+  onDown(e) {
+    if (!this.activeCard || e.button !== 0) return;
+    // let taps reach links, buttons and form fields on the card back
+    if (e.target.closest(INTERACTIVE)) return;
 
-  handlePointerDown(e) {
-    if (!this.activeCard) return;
-
-    // Check if target is an interactive element on back of card
-    const target = e.target;
-    if (target.closest('.card-back-close') || target.closest('.screenshot-thumb') || target.closest('a') || target.closest('button')) {
-      return;
-    }
-
-    // Only allow primary button (left mouse or touch)
-    if (e.button !== undefined && e.button !== 0) return;
-
-    this.isDragging = true;
-    this.startX = e.clientX;
-    this.startY = e.clientY;
-    this.currentX = e.clientX;
-    this.currentY = e.clientY;
-    this.startTime = performance.now();
-
-    try {
-      this.container.setPointerCapture(e.pointerId);
-    } catch (err) {
-      // Ignore if pointer capture isn't supported or fails
-    }
-
+    this.dragging = true;
+    this.start = { x: e.clientX, y: e.clientY, t: performance.now() };
+    this.delta = { x: 0, y: 0 };
+    this.container.setPointerCapture(e.pointerId);
     this.activeCard.style.transition = 'none';
   }
 
-  handlePointerMove(e) {
-    if (!this.isDragging || !this.activeCard) return;
+  onMove(e) {
+    if (!this.dragging || !this.activeCard) return;
 
-    this.currentX = e.clientX;
-    this.currentY = e.clientY;
+    this.delta = { x: e.clientX - this.start.x, y: e.clientY - this.start.y };
 
-    const deltaX = this.currentX - this.startX;
-    const deltaY = this.currentY - this.startY;
-    const rotateDeg = deltaX * 0.08;
-
-    // Apply translation & proportional tilt
-    const isFlipped = this.activeCard.classList.contains('flipped');
-    const baseRotation = isFlipped ? 180 : 0;
-    
-    this.activeCard.style.transform = `translate(${deltaX}px, ${deltaY}px) rotate(${rotateDeg}deg)`;
-
-    // Update stamp badges opacity
-    const playedBadge = this.activeCard.querySelector('.stamp-played');
-    const skippedBadge = this.activeCard.querySelector('.stamp-skipped');
-    const backlogBadge = this.activeCard.querySelector('.stamp-backlog');
-
-    const absX = Math.abs(deltaX);
-    const absY = Math.abs(deltaY);
-
-    if (playedBadge) playedBadge.style.opacity = '0';
-    if (skippedBadge) skippedBadge.style.opacity = '0';
-    if (backlogBadge) backlogBadge.style.opacity = '0';
-
-    if (deltaY < -25 && absY > absX * 0.8) {
-      // Swiping up (Backlog)
-      if (backlogBadge) {
-        backlogBadge.style.opacity = Math.min(1, absY / 90).toString();
-      }
-    } else if (deltaX > 20) {
-      // Swiping right (Played)
-      if (playedBadge) {
-        playedBadge.style.opacity = Math.min(1, deltaX / 90).toString();
-      }
-    } else if (deltaX < -20) {
-      // Swiping left (Skipped)
-      if (skippedBadge) {
-        skippedBadge.style.opacity = Math.min(1, absX / 90).toString();
-      }
-    }
+    // Pointer events can outpace the display; one write per frame is enough.
+    this.frame ??= requestAnimationFrame(() => {
+      this.frame = null;
+      this.paint();
+    });
   }
 
-  handlePointerUp(e) {
-    if (!this.isDragging) return;
-    this.isDragging = false;
+  paint() {
+    if (!this.activeCard) return;
+    const { x, y } = this.delta;
+    this.activeCard.style.transform = `translate(${x}px, ${y}px) rotate(${x * 0.08}deg)`;
 
-    try {
-      if (this.container.hasPointerCapture(e.pointerId)) {
-        this.container.releasePointerCapture(e.pointerId);
-      }
-    } catch (err) {}
+    const absX = Math.abs(x);
+    const absY = Math.abs(y);
+    let played = 0, skipped = 0, backlog = 0;
 
+    if (y < -25 && absY > absX * 0.8) backlog = Math.min(1, absY / 90);
+    else if (x > 20) played = Math.min(1, x / 90);
+    else if (x < -20) skipped = Math.min(1, absX / 90);
+
+    this.setBadge('.stamp-played', played);
+    this.setBadge('.stamp-skipped', skipped);
+    this.setBadge('.stamp-backlog', backlog);
+  }
+
+  setBadge(selector, opacity) {
+    const badge = this.activeCard.querySelector(selector);
+    if (badge) badge.style.opacity = String(opacity);
+  }
+
+  onUp(e) {
+    if (!this.dragging) return;
+    this.dragging = false;
+
+    cancelAnimationFrame(this.frame);
+    this.frame = null;
+
+    if (this.container.hasPointerCapture(e.pointerId)) {
+      this.container.releasePointerCapture(e.pointerId);
+    }
     if (!this.activeCard) return;
 
-    const deltaX = this.currentX - this.startX;
-    const deltaY = this.currentY - this.startY;
-    const elapsed = Math.max(1, performance.now() - this.startTime);
-    const vx = deltaX / elapsed;
-    const vy = deltaY / elapsed;
+    const { x, y } = this.delta;
+    const absX = Math.abs(x);
+    const absY = Math.abs(y);
+    const elapsed = Math.max(1, performance.now() - this.start.t);
+    const vx = x / elapsed;
+    const vy = y / elapsed;
 
-    const absX = Math.abs(deltaX);
-    const absY = Math.abs(deltaY);
-
-    // Tap Detection (card flip)
-    if (absX < 8 && absY < 8 && elapsed < 300) {
-      this.resetCardPosition();
-      if (this.onFlip) this.onFlip(this.activeCard);
+    if (absX < TAP_SLOP && absY < TAP_SLOP && elapsed < 300) {
+      this.reset();
+      this.onTap(this.activeCard);
       return;
     }
 
-    // Swipe Thresholds (Distance or Momentum Velocity)
-    const distThresholdX = 85;
-    const distThresholdY = 75;
-    const velThreshold = 0.38;
-
-    if (deltaY < -distThresholdY && absY > absX * 0.8 || vy < -velThreshold && absY > absX) {
-      // Backlog Swipe
-      this.executeSwipe('backlog', 'fly-up');
-    } else if (deltaX > distThresholdX || vx > velThreshold) {
-      // Played Swipe
-      this.executeSwipe('played', 'fly-right');
-    } else if (deltaX < -distThresholdX || vx < -velThreshold) {
-      // Skipped Swipe
-      this.executeSwipe('skipped', 'fly-left');
+    if ((y < -DIST_Y && absY > absX * 0.8) || (vy < -VELOCITY && absY > absX)) {
+      this.swipe('backlog');
+    } else if (x > DIST_X || vx > VELOCITY) {
+      this.swipe('played');
+    } else if (x < -DIST_X || vx < -VELOCITY) {
+      this.swipe('skipped');
     } else {
-      // Spring back to center
-      this.resetCardPosition();
+      this.reset();
     }
   }
 
-  handlePointerCancel() {
-    this.isDragging = false;
-    this.resetCardPosition();
+  cancel() {
+    this.dragging = false;
+    this.reset();
   }
 
-  resetCardPosition() {
+  reset() {
     if (!this.activeCard) return;
     this.activeCard.style.transition = 'transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1)';
-    this.activeCard.style.transform = 'translate(0px, 0px) rotate(0deg)';
-
-    const badges = this.activeCard.querySelectorAll('.stamp-badge');
-    badges.forEach(b => b.style.opacity = '0');
+    this.activeCard.style.transform = '';
+    this.activeCard.querySelectorAll('.stamp-badge')
+      .forEach(b => { b.style.opacity = '0'; });
   }
 
-  executeSwipe(action, flyClass) {
-    if (!this.activeCard) return;
+  swipe(action) {
     const card = this.activeCard;
-    this.activeCard = null; // Detach immediately
-
-    card.classList.add(flyClass);
-
-    // Trigger callback
-    if (this.onSwipe) {
-      this.onSwipe(card, action);
-    }
+    if (!card) return;
+    this.activeCard = null;   // detach immediately so the next input is ignored
+    card.classList.add(FLY_CLASS[action]);
+    this.onSwipe(card, action);
   }
 
+  /** Swipe the top card from a button or keyboard shortcut. */
   triggerAction(action) {
-    if (!this.activeCard) return;
-    const flyMap = {
-      'played': 'fly-right',
-      'skipped': 'fly-left',
-      'backlog': 'fly-up'
-    };
-    this.executeSwipe(action, flyMap[action] || 'fly-right');
+    if (this.activeCard && FLY_CLASS[action]) this.swipe(action);
   }
 }
 

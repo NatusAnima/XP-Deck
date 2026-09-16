@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Game Archive - Windows Explorer | XP-Deck</title>
+  <meta name="description" content="Manage and view your entire video game archive in authentic Windows XP Explorer format.">
+  <link rel="stylesheet" href="/static/css/xp-luna.css">
+  <link rel="stylesheet" href="/static/css/catalog.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%232E62CD' d='M19 6H5c-2.2 0-4 1.8-4 4v4c0 2.2 1.8 4 4 4h14c2.2 0 4-1.8 4-4v-4c0-2.2-1.8-4-4-4z'/></svg>">
+</head>
+<body>
+
+  <main class="explorer-window">
+
+    <header class="xp-title-bar">
+      <div class="xp-title-content">
+        <span class="xp-app-icon">
+          <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFF" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+        </span>
+        <h1 class="xp-title-text">My Game Archive - Windows Explorer</h1>
+      </div>
+      <div class="xp-title-buttons">
+        <button class="xp-win-btn" aria-label="Minimize" onclick="alert('Archive Explorer is active.')">_</button>
+        <button class="xp-win-btn" aria-label="Maximize" onclick="document.body.classList.toggle('maximized')">□</button>
+        <button class="xp-win-btn close" aria-label="Back to deck" onclick="window.location.href='/'">✕</button>
+      </div>
+    </header>
+
+    <!-- Standard Buttons Toolbar -->
+    <div class="explorer-toolbar">
+      <div class="toolbar-group">
+        <a href="/" class="toolbar-btn" title="Back to the card swiper">
+          <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2E62CD" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          <strong>Back to Deck</strong>
+        </a>
+        <button class="toolbar-btn" id="btn-refresh" title="Reload archive data">
+          <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2E9C19" d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      <div class="toolbar-sep"></div>
+
+      <div class="toolbar-group">
+        <a href="/api/export?format=csv" download class="toolbar-btn" title="Export clean CSV">
+          <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2B579A" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4z"/></svg>
+          <span>Export CSV</span>
+        </a>
+        <a href="/api/export?format=json" download class="toolbar-btn" title="Export full JSON">
+          <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2B579A" d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6z"/></svg>
+          <span>Export JSON</span>
+        </a>
+        <a href="/api/export?format=playnite" download class="toolbar-btn" title="Export Playnite CSV">
+          <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#7B1FA2" d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/></svg>
+          <span>Playnite Export</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Address Bar -->
+    <div class="address-bar-strip">
+      <span class="xp-label">Address</span>
+      <div class="address-box">
+        <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFCC00" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+        <span>C:\Games\MyArchive</span>
+      </div>
+    </div>
+
+    <div class="explorer-workspace">
+
+      <!-- Tasks sidebar -->
+      <aside class="explorer-sidebar" aria-label="Explorer Tasks">
+
+        <div class="task-panel">
+          <div class="task-panel-header">Folder Tasks</div>
+          <div class="task-panel-body">
+            <a href="/" class="task-link">
+              <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2E62CD" d="M19 6H5c-2.2 0-4 1.8-4 4v4c0 2.2 1.8 4 4 4h14c2.2 0 4-1.8 4-4v-4c0-2.2-1.8-4-4-4z"/></svg>
+              <span>Swipe Game Cards</span>
+            </a>
+            <a href="/api/export?format=csv" download class="task-link">
+              <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2E9C19" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              <span>Download CSV Sheet</span>
+            </a>
+            <a href="/api/export?format=json" download class="task-link">
+              <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0055EA" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+              <span>Download JSON Dump</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="task-panel">
+          <div class="task-panel-header">Filter by Status</div>
+          <div class="task-panel-body">
+            <div class="task-link active" data-status="all" tabindex="0" role="button">
+              <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFCC00" d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+              <span>All Titles (<span id="count-all">0</span>)</span>
+            </div>
+            <div class="task-link" data-status="played" tabindex="0" role="button">
+              <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2E9C19" d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/></svg>
+              <span>Played (<span id="count-played">0</span>)</span>
+            </div>
+            <div class="task-link" data-status="backlog" tabindex="0" role="button">
+              <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#0055EA" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+              <span>Backlog (<span id="count-backlog">0</span>)</span>
+            </div>
+            <div class="task-link" data-status="skipped" tabindex="0" role="button">
+              <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#D13526" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+              <span>Skipped (<span id="count-skipped">0</span>)</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="task-panel">
+          <div class="task-panel-header">Archive Details</div>
+          <div class="task-panel-body plain">
+            <p><strong>System:</strong> XP-Deck Local DB</p>
+            <p><strong>Total Logged:</strong> <span id="info-total">0</span></p>
+            <p><strong>Played:</strong> <span id="info-played">0</span></p>
+            <p><strong>Backlog:</strong> <span id="info-backlog">0</span></p>
+            <p><strong>Skipped:</strong> <span id="info-skipped">0</span></p>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- Contents -->
+      <section class="explorer-content">
+
+        <div class="content-filter-bar">
+          <div class="filter-group">
+            <label for="catalog-search" class="xp-label">Search:</label>
+            <input type="search" id="catalog-search" class="xp-select catalog-search-input"
+                   placeholder="Search by game title..." autocomplete="off">
+          </div>
+
+          <div class="filter-group push-right">
+            <label for="catalog-sort" class="xp-label">Sort by:</label>
+            <select id="catalog-sort" class="xp-select">
+              <option value="date_desc">Logged: Newest First</option>
+              <option value="date_asc">Logged: Oldest First</option>
+              <option value="title_asc">Title: A to Z</option>
+              <option value="year_desc">Release Year: New to Old</option>
+              <option value="year_asc">Release Year: Old to New</option>
+              <option value="rating_desc">My Rating: Highest First</option>
+              <option value="hours_desc">Hours: Most to Least</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="catalog-table-container">
+          <table class="catalog-table">
+            <thead>
+              <tr>
+                <th class="col-cover">Cover</th>
+                <th>Game Title &amp; Information</th>
+                <th class="cell-center col-year">Year</th>
+                <th class="cell-center col-status">Status</th>
+                <th class="cell-center col-rating">My Rating</th>
+                <th class="cell-center col-hours">Hours</th>
+                <th class="cell-center col-platform">Platform</th>
+                <th class="cell-center col-links">Store Links</th>
+                <th class="cell-right col-manage">Manage</th>
+              </tr>
+            </thead>
+            <tbody id="catalog-tbody">
+              <tr><td colspan="9" class="empty-cell">Loading game archive...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </section>
+
+    </div>
+
+    <footer class="xp-status-bar">
+      <div class="xp-status-pane grow" id="status-left" role="status" aria-live="polite">0 objects in archive</div>
+      <div class="xp-status-pane">Local Intranet</div>
+      <div class="xp-status-pane">My Computer</div>
+    </footer>
+
+  </main>
+
+  <!-- Templates: filled with textContent, never innerHTML -->
+
+  <template id="tpl-catalog-row">
+    <tr>
+      <td><img class="catalog-cover-thumb" data-el="cover" alt=""></td>
+      <td>
+        <div class="row-title" data-el="title"></div>
+        <div class="row-meta" data-el="meta"></div>
+      </td>
+      <td class="cell-center cell-year" data-el="year"></td>
+      <td class="cell-center"><span class="status-pill" data-el="status"></span></td>
+      <td class="cell-center cell-rating" data-el="rating"></td>
+      <td class="cell-center" data-el="hours"></td>
+      <td class="cell-center" data-el="platform"></td>
+      <td class="cell-center">
+        <div class="row-actions">
+          <a class="xp-button link-btn store-steam" target="_blank" rel="noopener noreferrer" data-el="steam">Steam</a>
+          <a class="xp-button link-btn store-gog" target="_blank" rel="noopener noreferrer" data-el="gog">GOG</a>
+          <a class="xp-button link-btn" target="_blank" rel="noopener noreferrer" data-el="google">Google</a>
+        </div>
+      </td>
+      <td class="cell-right">
+        <div class="row-actions">
+          <button class="xp-button row-btn" data-action="edit">Edit</button>
+          <button class="xp-button xp-button-red row-btn" data-action="unswipe"
+                  title="Remove from the archive and return to the deck">Unswipe</button>
+        </div>
+      </td>
+    </tr>
+  </template>
+
+  <template id="tpl-catalog-edit">
+    <tr>
+      <td colspan="9" class="edit-drawer-cell">
+        <div class="edit-drawer">
+          <label class="edit-field">Status:
+            <select class="xp-select" data-el="status">
+              <option value="played">Played</option>
+              <option value="backlog">Backlog</option>
+              <option value="skipped">Skipped</option>
+            </select>
+          </label>
+          <label class="edit-field">Rating (1-10):
+            <input type="number" class="xp-select edit-narrow" min="1" max="10" data-el="rating">
+          </label>
+          <label class="edit-field">Hours:
+            <input type="number" class="xp-select edit-narrow" min="0" max="9999" data-el="hours">
+          </label>
+          <label class="edit-field">Platform:
+            <input type="text" class="xp-select edit-medium" data-el="platform">
+          </label>
+          <div class="edit-actions">
+            <button class="xp-button xp-button-green row-btn" data-el="save">Save</button>
+            <button class="xp-button row-btn" data-el="cancel">Cancel</button>
+          </div>
+        </div>
+      </td>
+    </tr>
+  </template>
+
+  <template id="tpl-empty-row">
+    <tr><td colspan="9" class="empty-cell" data-el="message"></td></tr>
+  </template>
+
+  <script src="/static/js/shared.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/catalog.js"></script>
+</body>
+</html>

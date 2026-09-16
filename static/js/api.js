@@ -1,114 +1,93 @@
 /**
- * API.JS: Lightweight REST client for XP-Deck backend endpoints
+ * API.JS: REST client for the XP-Deck backend.
  */
 
+async function request(url, options) {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    // surface the backend's own message when it sent one
+    const detail = await res.json().then(d => d.detail).catch(() => null);
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+const json = (method, body) => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body)
+});
+
 const API = {
-  async getDeck(year, limit = 30, offset = 0) {
-    const res = await fetch(`/api/deck?year=${encodeURIComponent(year)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`);
-    if (!res.ok) throw new Error(`Deck fetch failed: ${res.statusText}`);
-    return await res.json();
+  getDeck(year, limit = 30, igdbOffset = 0) {
+    const params = new URLSearchParams({ year, limit, igdb_offset: igdbOffset });
+    return request(`/api/deck?${params}`);
   },
 
-  async recordSwipe(igdbId, status, platformPlayed = null, hoursPlayed = null, userRating = null) {
-    const payload = {
+  searchGames(query) {
+    return request(`/api/search?${new URLSearchParams({ q: query })}`);
+  },
+
+  recordSwipe(igdbId, status, platformPlayed = null, hoursPlayed = null, userRating = null) {
+    return request('/api/swipe', json('POST', {
       igdb_id: Number(igdbId),
       status,
-      platform_played: platformPlayed,
-      hours_played: hoursPlayed ? Number(hoursPlayed) : null,
-      user_rating: userRating ? Number(userRating) : null
-    };
-
-    const res = await fetch('/api/swipe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-
-    if (!res.ok) throw new Error(`Swipe submission failed: ${res.statusText}`);
-    return await res.json();
+      platform_played: platformPlayed || null,
+      hours_played: hoursPlayed ?? null,
+      user_rating: userRating ?? null
+    }));
   },
 
-  async undoSwipe() {
-    const res = await fetch('/api/undo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    if (!res.ok) throw new Error(`Undo failed: ${res.statusText}`);
-    return await res.json();
+  undoSwipe() {
+    return request('/api/undo', { method: 'POST' });
   },
 
-  async getStats() {
-    const res = await fetch('/api/stats');
-    if (!res.ok) throw new Error(`Stats fetch failed: ${res.statusText}`);
-    return await res.json();
+  getStats() {
+    return request('/api/stats');
   },
 
-  async getStatus() {
-    const res = await fetch('/api/status');
-    if (!res.ok) throw new Error(`Status check failed: ${res.statusText}`);
-    return await res.json();
+  getSettings() {
+    return request('/api/settings');
   },
 
-  async getSettings() {
-    const res = await fetch('/api/settings');
-    if (!res.ok) throw new Error(`Failed to load settings: ${res.statusText}`);
-    return await res.json();
+  updateSettings(ratingDurationSeconds) {
+    return request('/api/settings', json('POST', {
+      rating_duration_seconds: Number(ratingDurationSeconds)
+    }));
   },
 
-  async updateSettings(ratingDurationSeconds) {
-    const res = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rating_duration_seconds: Number(ratingDurationSeconds) })
-    });
-    if (!res.ok) throw new Error(`Failed to update settings: ${res.statusText}`);
-    return await res.json();
-  },
-
-  async getCatalog(status = 'all', search = '', sort = 'date_desc') {
-    const params = new URLSearchParams();
+  getCatalog(status = 'all', search = '', sort = 'date_desc') {
+    const params = new URLSearchParams({ sort });
     if (status && status !== 'all') params.set('status', status);
-    if (search && search.trim()) params.set('search', search.trim());
-    if (sort) params.set('sort', sort);
-
-    const res = await fetch(`/api/catalog?${params.toString()}`);
-    if (!res.ok) throw new Error(`Catalog fetch failed: ${res.statusText}`);
-    return await res.json();
+    if (search.trim()) params.set('search', search.trim());
+    return request(`/api/catalog?${params}`);
   },
 
-  async updateCatalogItem(igdbId, data) {
-    const res = await fetch(`/api/catalog/${encodeURIComponent(igdbId)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error(`Failed to update catalog item: ${res.statusText}`);
-    return await res.json();
+  updateCatalogItem(igdbId, data) {
+    return request(`/api/catalog/${igdbId}`, json('PUT', data));
   },
 
-  async deleteCatalogItem(igdbId) {
-    const res = await fetch(`/api/catalog/${encodeURIComponent(igdbId)}`, {
-      method: 'DELETE'
-    });
-    if (!res.ok) throw new Error(`Failed to delete swipe: ${res.statusText}`);
-    return await res.json();
+  deleteCatalogItem(igdbId) {
+    return request(`/api/catalog/${igdbId}`, { method: 'DELETE' });
   },
 
-  async resetData(scope, year = null) {
-    const res = await fetch('/api/reset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope, year })
-    });
-    if (!res.ok) throw new Error(`Reset failed: ${res.statusText}`);
-    return await res.json();
+  resetData(scope, year = null) {
+    return request('/api/reset', json('POST', { scope, year }));
   },
 
-  async getNetworkInfo() {
-    const res = await fetch('/api/network-info');
-    if (!res.ok) throw new Error(`Failed to get network info: ${res.statusText}`);
-    return await res.json();
+  getNetworkInfo() {
+    return request('/api/network-info');
+  },
+
+  getSetupStatus() {
+    return request('/api/setup');
+  },
+
+  saveSetup(clientId, clientSecret) {
+    return request('/api/setup', json('POST', {
+      client_id: clientId,
+      client_secret: clientSecret
+    }));
   }
 };
 

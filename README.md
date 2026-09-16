@@ -7,100 +7,102 @@
 ## Features
 
 * **Windows XP (Luna) Design System:** Classic blue title bar gradients, beveled outset/inset frames, segmented green progress bars, retro menus, and status bar.
-* **3D Card Flip Details:** Tap any card or press `Space`/`F` to flip it in 3D, revealing full game synopses, high-res screenshots, platforms, genres, and IGDB ratings.
+* **3D Card Flip Details:** Tap any card or press `Space`/`F` to flip it in 3D, revealing the full synopsis, a screenshot gallery, platforms, genres, and the IGDB rating.
 * **Mobile Touch Gestures & Desktop Controls:**
-  * **Swipe Right / `D` or `→`:** Mark as **Played** (triggers a 2-second quick-tag popover for platform & 1–10 rating).
+  * **Swipe Right / `D` or `→`:** Mark as **Played** (opens a quick-tag popover for platform, hours & 1–10 rating).
   * **Swipe Left / `A` or `←`:** Mark as **Skipped** (never played).
   * **Swipe Up / `W` or `↑`:** Send to **Active Backlog** (want to play).
-  * **`Ctrl+Z` / `U`:** **Undo** last swipe (reverts database row and restores card to the deck).
-* **Smart IGDB Caching & Anti-Shovelware Filtering:**
+  * **`Ctrl+Z` / `U`:** **Undo** last swipe (restores the card to the deck).
+* **Search by Title:** Find any game across every year without knowing its release date — results drop straight into the deck.
+* **IGDB Integration & Anti-Shovelware Filtering:**
   * Connects directly to Twitch OAuth2 & IGDB API v4.
-  * Filters out low-effort titles and shovelware via popularity ranking and category filtering (`game_type = 0, 8, 9, 10`).
-  * Caches metadata locally in SQLite (`data/games.db`).
-  * Built-in curated offline seed catalog ensures immediate out-of-the-box operation.
+  * Filters low-effort titles via popularity ranking and category filtering (`game_type = 0, 8, 9, 10`).
+  * Caches metadata locally in SQLite (`data/games.db`) and tops the deck up automatically as you swipe.
 * **Multi-Format Export Center:**
   * **Clean CSV:** Title, Release Year, Status, Platform, Rating, Hours Played, Logged Date.
-  * **Playnite-Compatible CSV:** Directly importable into your Playnite game library (`Name, Platform, Completion Status, User Score, Time Played`).
-  * **Structured JSON:** Full JSON dump including game metadata and swipe history.
-* **Authentic Retro Audio:** Windows XP navigation clicks, alert chimes, and swipe whooshes synthesized natively via Web Audio API (toggleable in menu and status bar).
-* **LAN & Tailscale Friendly:** Run on `0.0.0.0:8000` to swipe smoothly on your smartphone or tablet from anywhere on your home network.
+  * **Playnite-Compatible CSV:** Directly importable into Playnite (`Name, Platform, Completion Status, User Score, Time Played`).
+  * **Structured JSON:** Full dump including game metadata and swipe history.
+* **Retro Audio:** Windows XP style clicks, chimes, and swipe whooshes synthesized via the Web Audio API (toggleable).
+* **LAN & Tailscale Friendly:** Bind to `0.0.0.0` to swipe from your phone or tablet anywhere on your home network.
 
 ---
 
-## Quick Start
+## Getting Started
 
-### 1. Prerequisites
+### The easy way
 
-* Python 3.10 or higher
-* Git
+1. **[Download XP-Deck](https://github.com/NatusAnima/XP-Deck/archive/refs/heads/main.zip)** and unzip it anywhere you like.
+2. Double-click **`Start XP-Deck.bat`** (Windows) or **`start-xp-deck.sh`** (macOS/Linux).
+3. That's it. The first run sets itself up, then your browser opens automatically.
 
-### 2. Installation
+XP-Deck will walk you through connecting to the game database on first launch —
+it's free, takes about two minutes, and the app explains every step on screen.
 
-Clone or download the repository:
+> **No Python?** The launcher notices, opens the download page for you, and tells
+> you what to click. Tick **"Add python.exe to PATH"** during that install, then
+> double-click the launcher again.
+
+Leave the black window open while you use XP-Deck; closing it stops the app.
+
+### What the setup asks for
+
+Game covers and descriptions come from **IGDB**, which is owned by Twitch — so
+Twitch issues the keys. They are free and need no payment details. The app shows
+you the six steps, but for reference:
+
+1. Go to [dev.twitch.tv/console/apps/create](https://dev.twitch.tv/console/apps/create) and sign in.
+2. **Name:** anything (`My XP-Deck` works).
+3. **OAuth Redirect URL:** `http://localhost`
+4. **Category:** Application Integration → **Create**.
+5. Click **Manage** on your new app → **New Secret**.
+6. Paste the **Client ID** and **Client Secret** into XP-Deck.
+
+They are stored in a plain file called `.env` beside the app, are never sent
+anywhere except Twitch, and you can change them later under
+**Options → IGDB Credentials**.
+
+---
+
+## Running it manually
+
+If you would rather not use the launcher:
 
 ```bash
-git clone https://github.com/NatusAnima/xp-deck.git
-cd xp-deck
-```
-
-Install backend dependencies:
-
-```bash
+git clone https://github.com/NatusAnima/XP-Deck.git
+cd XP-Deck
 pip install -r requirements.txt
+python -m backend
 ```
 
-### 3. Configure Credentials
-
-Copy `.env.example` to `.env`:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env` with your Twitch Developer credentials:
-
-```env
-TWITCH_CLIENT_ID=your_twitch_client_id_here
-TWITCH_CLIENT_SECRET=your_twitch_client_secret_here
-HOST=0.0.0.0
-PORT=8000
-```
-
-*(Get free credentials in 2 minutes at [dev.twitch.tv/console](https://dev.twitch.tv/console).)*
-
-### 4. Run XP-Deck
-
-```bash
-python backend/app.py
-```
-
-Or with Uvicorn directly:
+`python -m backend` reads `HOST` and `PORT` from `.env` (defaults: `0.0.0.0:8000`).
+For auto-reload while developing:
 
 ```bash
 uvicorn backend.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Open your browser and navigate to:
+> `python backend/app.py` does **not** work: `app.py` uses relative imports, so
+> running it as a script fails on the first import. Use one of the commands above.
 
-```
-http://localhost:8000
-```
-
-On mobile devices on the same Wi-Fi network, navigate to `http://<your-computer-ip>:8000`.
+Then open <http://localhost:8000>. To use it from your phone, open
+**View → Connect Phone (LAN)** and scan the QR code.
 
 ---
 
 ## Desktop Shortcuts
 
-| Key                           | Action                                                   |
-| ----------------------------- | -------------------------------------------------------- |
-| `D` or `→`               | Mark as**Played**                                  |
-| `A` or `←`               | Mark as**Skipped**                                 |
-| `W` or `↑`               | Add to**Active Backlog**                           |
-| `Space` / `F` / `Enter` | **Flip Card** (view synopsis & screenshot gallery) |
-| `Ctrl+Z` or `U`           | **Undo** last swipe                                |
-| `1` – `9`                | Select rating during quick-tag popover                   |
-| `Escape`                    | Close dialogs and popovers                               |
+| Key | Action |
+| --- | --- |
+| `D` or `→` | Mark as **Played** |
+| `A` or `←` | Mark as **Skipped** |
+| `W` or `↑` | Add to **Active Backlog** |
+| `Space` / `F` | **Flip Card** (synopsis & screenshot gallery) |
+| `Ctrl+Z` or `U` | **Undo** last swipe |
+| `1`–`9`, `0` | Select a rating during quick-tag (`0` = 10) |
+| `Escape` | Cancel the quick-tag, or close a dialog |
+
+Shortcuts stand down while a text field is focused, and `Space`/`Enter` always
+activate a focused button rather than flipping the card.
 
 ---
 
@@ -108,67 +110,88 @@ On mobile devices on the same Wi-Fi network, navigate to `http://<your-computer-
 
 ```text
 xp-deck/
+├── Start XP-Deck.bat       # double-click launcher (Windows)
+├── start-xp-deck.sh        # double-click launcher (macOS / Linux)
 ├── backend/
-│   ├── app.py              # FastAPI server, routing, static mounting
+│   ├── __main__.py         # `python -m backend` entry point
+│   ├── app.py              # FastAPI routes and static mounting
 │   ├── config.py           # Environment variable loader (.env)
-│   ├── db.py               # SQLite schema setup, caching, swiping, undos
-│   ├── igdb_client.py      # Twitch token manager & Apicalypse query builder
-│   ├── export_service.py   # Clean CSV, JSON, and Playnite export logic
-│   └── test_backend.py     # Backend test verification script
+│   ├── db.py               # SQLite schema, migrations, queries
+│   ├── igdb_client.py      # Twitch token handling & Apicalypse queries
+│   └── export_service.py   # Clean CSV, JSON, and Playnite export
 ├── static/
-│   ├── index.html          # Main application frame
+│   ├── index.html          # Swiper frame + <template> definitions
+│   ├── catalog.html        # Windows Explorer style archive browser
 │   ├── css/
-│   │   ├── xp-luna.css     # Windows XP theme tokens, buttons, bevels, dialogs
-│   │   └── swiper.css      # Card deck styling, swipe transforms, mobile layout
+│   │   ├── xp-luna.css     # Theme tokens, controls, dialogs, responsive rules
+│   │   ├── swiper.css      # Card deck, 3D flip, gestures, quick-tag
+│   │   └── catalog.css     # Explorer chrome for the archive page
 │   └── js/
+│       ├── shared.js       # $, clone(), gameLinks() — used by both pages
 │       ├── api.js          # Backend fetch client
-│       ├── gestures.js     # Touch & mouse pointer tracking (swipe physics)
-│       ├── shortcuts.js    # Desktop keyboard listeners (WASD / Arrows)
-│       └── app.js          # State management, card rendering, QoL controls
+│       ├── gestures.js     # Pointer swipe physics
+│       ├── shortcuts.js    # Keyboard controls
+│       ├── app.js          # Deck state, rendering, controls
+│       └── catalog.js      # Archive browser
 ├── data/
 │   └── games.db            # Auto-generated SQLite database (gitignored)
 ├── .env.example            # Environment template
-├── .gitignore              # Ignores .env and runtime databases
 ├── requirements.txt        # Python dependencies
-└── README.md               # Documentation
+└── README.md
 ```
 
 ---
 
 ## Database Schema
 
+Schema and data migrations run automatically at startup, gated on SQLite's
+`PRAGMA user_version`, so each one applies exactly once.
+
 ```sql
-CREATE TABLE IF NOT EXISTS cached_games (
-    igdb_id INTEGER PRIMARY KEY,
+CREATE TABLE cached_games (
+    igdb_id INTEGER PRIMARY KEY,   -- a real IGDB id; never synthesized
     title TEXT NOT NULL,
-    release_year INTEGER,
+    release_year INTEGER,          -- NULL when IGDB has no release date
     cover_url TEXT,
-    screenshots TEXT,
+    screenshots TEXT,              -- JSON array of image URLs
     summary TEXT,
-    genres TEXT,
-    platforms TEXT,
-    total_rating_count INTEGER,
-    rating REAL,
-    raw_payload TEXT
+    genres TEXT,                   -- comma separated
+    platforms TEXT,                -- comma separated
+    total_rating_count INTEGER DEFAULT 0,
+    rating REAL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS user_swipes (
+CREATE TABLE user_swipes (
     igdb_id INTEGER PRIMARY KEY,
-    status TEXT CHECK(status IN ('played', 'skipped', 'backlog')),
+    status TEXT NOT NULL CHECK(status IN ('played', 'skipped', 'backlog')),
     platform_played TEXT,
     hours_played INTEGER,
-    user_rating INTEGER,
+    user_rating INTEGER,           -- 1-10
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(igdb_id) REFERENCES cached_games(igdb_id)
 );
 
-CREATE TABLE IF NOT EXISTS swipe_history (
+CREATE TABLE swipe_history (       -- powers Undo
     history_id INTEGER PRIMARY KEY AUTOINCREMENT,
     igdb_id INTEGER,
     action TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE user_settings (       -- key/value, e.g. rating_duration_seconds
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
 ```
+
+---
+
+## Notes
+
+* XP-Deck has **no authentication** and its reset endpoints are destructive. Keep it
+  on your LAN or a Tailscale network, not the public internet.
+* Your archive lives entirely in `data/games.db` — copy that file to back it up, or
+  use the Export Center.
 
 ---
 

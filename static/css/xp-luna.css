@@ -1,40 +1,33 @@
 /* ==========================================================================
-   XP-LUNA.CSS: Authentic Windows XP (Luna) Design System Tokens & Controls
-   Responsive PC Desktop (Dual-Pane) vs Mobile Layout
+   XP-LUNA.CSS: Windows XP (Luna) design tokens, controls and layout.
+
+   Rule order matters here: every base rule comes first, and the responsive
+   overrides live in one block at the bottom of the file. That ordering is what
+   lets the media queries win on equal specificity - this file used to need 45
+   !important declarations purely because base rules sat below the breakpoints.
    ========================================================================== */
 
 :root {
-  /* Classic Windows XP Luna Palette */
   --xp-bg: #ECE9D8;
   --xp-dark-border: #7F9DB9;
-  --xp-light-border: #FFFFFF;
-  --xp-shadow-dark: #808080;
-  --xp-shadow-deep: #404040;
-  
-  /* Title Bar Blue Gradient */
+
   --xp-title-top: #0058EE;
   --xp-title-highlight: #3593FF;
   --xp-title-mid: #0262EE;
   --xp-title-dark: #0030A5;
   --xp-title-border: #0055EA;
 
-  /* Button Colors */
   --xp-btn-bg: linear-gradient(180deg, #FFFFFF 0%, #ECEBE5 45%, #D8D6C7 50%, #ECE9D8 100%);
   --xp-btn-hover: linear-gradient(180deg, #FFFFFF 0%, #F5F4EE 45%, #E6E4D6 50%, #FAF9F5 100%);
   --xp-btn-active: linear-gradient(180deg, #D4D0C8 0%, #C4C0B6 100%);
   --xp-btn-border: #003C74;
 
-  /* Accent & Action Colors */
-  --xp-green-top: #42B72A;
   --xp-green-mid: #2E9C19;
   --xp-green-dark: #1E6B10;
   --xp-red-close: #D13526;
   --xp-red-close-hover: #E81123;
-  
-  /* Progress Bar */
-  --xp-progress-block: linear-gradient(180deg, #74E874 0%, #2BB72B 50%, #158315 100%);
-  
-  /* Typography */
+  --xp-accent: #003399;
+
   --xp-font: Tahoma, "MS Sans Serif", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --xp-font-size-sm: 11px;
   --xp-font-size-md: 12px;
@@ -46,6 +39,26 @@
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
+}
+
+/* The `hidden` attribute is only a UA-stylesheet `display: none`, so any rule
+   here that sets display (buttons, dialog bodies) silently overrides it. This
+   makes `el.hidden = true` actually hide things. */
+[hidden] {
+  display: none !important;
+}
+
+/* Window chrome should not be selectable, but content must be: the synopsis,
+   the stats table and the LAN URL all exist to be read and copied. */
+.xp-title-bar,
+.xp-menu-bar,
+.xp-status-bar,
+.deck-controls,
+.xp-toolbar,
+.stamp-badge,
+.card-hint,
+.xp-win-btn,
+.xp-button {
   user-select: none;
 }
 
@@ -54,8 +67,7 @@ body {
   font-size: var(--xp-font-size-md);
   color: #000000;
   background-color: #004E98;
-  background-image: 
-    radial-gradient(circle at 50% 20%, #2080DF 0%, #004E98 60%, #002855 100%);
+  background-image: radial-gradient(circle at 50% 20%, #2080DF 0%, #004E98 60%, #002855 100%);
   min-height: 100vh;
   display: flex;
   justify-content: center;
@@ -65,11 +77,11 @@ body {
 }
 
 /* ==========================================================================
-   Main XP Window Container - Responsive Dual-UI
+   Window shell
    ========================================================================== */
 .xp-window {
   width: 100%;
-  max-width: 440px; /* Mobile Default */
+  max-width: 440px;
   background: var(--xp-bg);
   border: 3px solid var(--xp-title-border);
   border-radius: 8px 8px 0 0;
@@ -78,84 +90,22 @@ body {
   flex-direction: column;
   position: relative;
   overflow: hidden;
-  transition: max-width 0.2s ease;
 }
 
-/* PC Desktop Mode (>820px): Uses the WHOLE page space */
-@media (min-width: 820px) {
-  body {
-    padding: 8px 12px !important;
-    height: 100vh !important;
-    box-sizing: border-box !important;
-    align-items: stretch !important;
-    justify-content: stretch !important;
-  }
-
-  .xp-window {
-    max-width: none !important;
-    width: 100% !important;
-    height: 100% !important;
-    max-height: calc(100vh - 16px) !important;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
-    display: flex !important;
-    flex-direction: column !important;
-    margin: 0 !important;
-  }
-
-  .xp-workspace {
-    flex: 1 !important;
-    min-height: 0 !important;
-    display: grid !important;
-    grid-template-columns: 460px 1fr !important;
-    gap: 12px !important;
-    padding: 10px !important;
-    background: var(--xp-bg) !important;
-    overflow: hidden !important;
-  }
-
-  .xp-inspector {
-    height: 100% !important;
-    min-height: 0 !important;
-    display: flex !important;
-    flex-direction: column !important;
-    overflow: hidden !important;
-  }
-
-  .xp-inspector-body {
-    flex: 1 !important;
-    min-height: 0 !important;
-    overflow-y: auto !important;
-    padding: 18px !important;
-    gap: 14px !important;
-  }
-
-  .xp-inspector-desc-box {
-    max-height: none !important;
-    font-size: 15px !important;
-    line-height: 1.75 !important;
-    padding: 14px 16px !important;
-    background: #FFFFFF !important;
-    border: 2px inset #D4D0C8 !important;
-    color: #111111 !important;
-    flex: 1 !important;
-  }
+.xp-workspace {
+  display: flex;
+  flex-direction: column;
 }
 
-/* Mobile Mode (<=819px) */
-@media (max-width: 819px) {
-  .xp-workspace {
-    display: flex;
-    flex-direction: column;
-    padding: 0;
-  }
-
-  .xp-inspector {
-    display: none !important;
-  }
+.deck-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 
 /* ==========================================================================
-   Title Bar
+   Title bar
    ========================================================================== */
 .xp-title-bar {
   background: linear-gradient(
@@ -173,6 +123,7 @@ body {
   justify-content: space-between;
   border-top-left-radius: 5px;
   border-top-right-radius: 5px;
+  flex-shrink: 0;
 }
 
 .xp-title-content {
@@ -184,6 +135,15 @@ body {
   font-size: var(--xp-font-size-lg);
   letter-spacing: 0.3px;
   text-shadow: 1px 1px 2px #0B2464;
+  min-width: 0;
+}
+
+.xp-title-text {
+  font-size: inherit;
+  font-weight: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .xp-app-icon {
@@ -192,11 +152,13 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .xp-title-buttons {
   display: flex;
   gap: 3px;
+  flex-shrink: 0;
 }
 
 .xp-win-btn {
@@ -216,13 +178,8 @@ body {
   transition: filter 0.1s ease;
 }
 
-.xp-win-btn:hover {
-  filter: brightness(1.2);
-}
-
-.xp-win-btn:active {
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
-}
+.xp-win-btn:hover { filter: brightness(1.2); }
+.xp-win-btn:active { box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6); }
 
 .xp-win-btn.close {
   background: linear-gradient(180deg, #E65A48 0%, var(--xp-red-close) 50%, #991D11 100%);
@@ -233,7 +190,7 @@ body {
 }
 
 /* ==========================================================================
-   Menu Bar
+   Menu bar
    ========================================================================== */
 .xp-menu-bar {
   background: var(--xp-bg);
@@ -244,6 +201,7 @@ body {
   font-size: var(--xp-font-size-md);
   position: relative;
   z-index: 50;
+  flex-shrink: 0;
 }
 
 .xp-menu-item {
@@ -253,7 +211,8 @@ body {
   border-radius: 2px;
 }
 
-.xp-menu-item:hover, .xp-menu-item.active {
+.xp-menu-item:hover,
+.xp-menu-item.active {
   background: #316AC5;
   color: #FFFFFF;
 }
@@ -265,16 +224,14 @@ body {
   background: #FFFFFF;
   border: 1px solid #716F64;
   box-shadow: 2px 4px 10px rgba(0, 0, 0, 0.25);
-  min-width: 175px;
+  min-width: 190px;
   display: none;
   flex-direction: column;
   padding: 2px;
   z-index: 1000;
 }
 
-.xp-menu-item.active .xp-dropdown {
-  display: flex;
-}
+.xp-menu-item.active .xp-dropdown { display: flex; }
 
 .xp-dropdown-item {
   padding: 5px 12px;
@@ -287,10 +244,15 @@ body {
   white-space: nowrap;
 }
 
-.xp-dropdown-item:hover {
+.xp-dropdown-item:hover,
+.xp-dropdown-item:focus-visible {
   background: #316AC5;
   color: #FFFFFF;
+  outline: none;
 }
+
+.xp-dropdown-item.danger-text { color: #991D11; }
+.xp-dropdown-item.danger-text:hover { color: #FFFFFF; }
 
 .xp-dropdown-divider {
   height: 1px;
@@ -299,7 +261,7 @@ body {
 }
 
 /* ==========================================================================
-   Era & Year Control Toolbar
+   Toolbar
    ========================================================================== */
 .xp-toolbar {
   background: var(--xp-bg);
@@ -310,19 +272,33 @@ body {
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
 .xp-toolbar-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex: 1;
+  flex-wrap: wrap;
 }
 
-.xp-year-selector {
+.xp-toolbar-right {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.xp-year-selector,
+.xp-search {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.xp-search-input {
+  width: 190px;
+  font-weight: normal;
 }
 
 .xp-label {
@@ -339,16 +315,16 @@ body {
   border: 2px inset #D4D0C8;
   border-radius: 0;
   color: #000000;
-  cursor: pointer;
   outline: none;
   font-weight: bold;
 }
 
-.xp-select:focus {
-  border-color: #316AC5;
+.xp-select:focus-visible {
+  outline: 2px solid #316AC5;
+  outline-offset: -1px;
 }
 
-/* Segmented XP Progress Bar */
+/* Progress */
 .xp-progress-wrapper {
   display: flex;
   align-items: center;
@@ -371,12 +347,7 @@ body {
   height: 100%;
   width: 0%;
   background: repeating-linear-gradient(
-    90deg,
-    #30B530 0px,
-    #5AE05A 4px,
-    #1E821E 8px,
-    #FFFFFF 8px,
-    #FFFFFF 10px
+    90deg, #30B530 0px, #5AE05A 4px, #1E821E 8px, #FFFFFF 8px, #FFFFFF 10px
   );
   transition: width 0.3s ease;
 }
@@ -384,22 +355,21 @@ body {
 .xp-badge {
   font-size: 11px;
   font-weight: bold;
-  color: #003399;
-  min-width: 36px;
+  color: var(--xp-accent);
+  min-width: 52px;
   text-align: right;
 }
 
 /* ==========================================================================
-   Desktop Inspector Panel (Right Pane on PC)
+   Inspector (desktop right pane)
    ========================================================================== */
 .xp-inspector {
-  display: none; /* Shown via media query on desktop */
+  display: none;
   flex-direction: column;
   background: #FFFFFF;
-  border: 2px inset #7F9DB9;
+  border: 2px inset var(--xp-dark-border);
   border-radius: 4px;
   overflow: hidden;
-  height: 520px;
 }
 
 .xp-inspector-header {
@@ -409,7 +379,28 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   font-weight: bold;
+  flex-shrink: 0;
+}
+
+.inspector-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.inspector-heading > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inspector-year {
+  font-size: 11px;
+  opacity: 0.85;
+  flex-shrink: 0;
 }
 
 .xp-inspector-body {
@@ -431,30 +422,16 @@ body {
 .xp-inspector-title {
   font-size: 18px;
   font-weight: bold;
-  color: #003399;
+  color: var(--xp-accent);
   line-height: 1.3;
 }
 
-/* Store Link Buttons */
-.xp-store-buttons {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 6px 0;
-  border-bottom: 1px solid #E0DEC8;
-}
-
-.store-btn {
-  text-decoration: none;
+.xp-inspector-platforms {
   font-size: 11px;
-  font-weight: bold;
-  padding: 4px 10px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  color: #555;
+  margin-top: 2px;
 }
 
-/* Description Readability Overhaul */
 .xp-inspector-desc-box {
   background: #FFFFFF;
   border: 1px inset #D4D0C8;
@@ -474,35 +451,77 @@ body {
   font-size: 11px;
 }
 
+.meta-box strong {
+  display: block;
+  color: var(--xp-accent);
+  margin-bottom: 2px;
+}
+
 .xp-inspector-screenshots {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
 
 .xp-inspector-screenshots img {
   width: 100%;
-  height: 64px;
+  aspect-ratio: 16 / 9;
   object-fit: cover;
-  border: 1px solid #7F9DB9;
-  border-radius: 2px;
+  border: 1px solid var(--xp-dark-border);
+  border-radius: 3px;
   cursor: pointer;
-  transition: transform 0.1s ease, border-color 0.1s ease;
+  background: #000000;
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
 .xp-inspector-screenshots img:hover {
-  transform: scale(1.04);
-  border-color: #0055EA;
+  transform: scale(1.03);
+  border-color: var(--xp-title-border);
+  box-shadow: 0 4px 10px rgba(0, 85, 234, 0.3);
 }
 
+/* Store links */
+.xp-store-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px solid #E0DEC8;
+  align-items: center;
+}
+
+.xp-store-buttons.borderless {
+  border: none;
+  padding: 0;
+}
+
+.store-label {
+  font-size: 11px;
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+.store-btn {
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.store-steam { color: #002244; }
+.store-gog   { color: #4A148C; }
+
 /* ==========================================================================
-   Windows Picture and Fax Viewer Modal (Screenshot Lightbox)
+   Picture viewer
    ========================================================================== */
 .xp-fax-viewer {
   width: 90vw;
   max-width: 880px;
-  background: #ECE9D8;
-  border: 3px solid #0055EA;
+  background: var(--xp-bg);
+  border: 3px solid var(--xp-title-border);
   border-radius: 8px 8px 0 0;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75);
   display: flex;
@@ -516,7 +535,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
   overflow: hidden;
   padding: 10px;
 }
@@ -526,7 +544,6 @@ body {
   max-height: 100%;
   object-fit: contain;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-  user-select: none;
 }
 
 .xp-fax-toolbar {
@@ -539,86 +556,54 @@ body {
   border-top: 1px solid #FFFFFF;
 }
 
-/* ==========================================================================
-   Catalog Explorer Modal
-   ========================================================================== */
-.catalog-dialog {
-  width: 95vw;
-  max-width: 820px;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.catalog-toolbar {
-  padding: 8px 12px;
-  background: var(--xp-bg);
-  border-bottom: 1px solid #D0CCBA;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.catalog-tabs {
-  display: flex;
-  gap: 4px;
-}
-
-.catalog-tab {
-  padding: 3px 10px;
-  background: #D4D0C8;
-  border: 1px solid #716F64;
-  border-bottom: none;
-  border-radius: 4px 4px 0 0;
+.viewer-counter {
   font-size: 11px;
   font-weight: bold;
-  cursor: pointer;
+  min-width: 60px;
+  text-align: center;
 }
 
-.catalog-tab.active {
-  background: #ECE9D8;
-  border-color: #0055EA;
-  border-top: 2px solid #0055EA;
-  color: #003399;
-}
+.spaced-left { margin-left: 12px; }
 
-.catalog-list-container {
-  flex: 1;
-  overflow-y: auto;
-  background: #FFFFFF;
-  border: 2px inset #7F9DB9;
-  margin: 10px;
-  max-height: 480px;
-}
-
+/* ==========================================================================
+   Catalog table (used by the archive page)
+   ========================================================================== */
 .catalog-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .catalog-table th {
-  background: #E0DEC8;
-  border-bottom: 1px solid #7F9DB9;
+  background: #ECE9D8;
+  border-bottom: 1px solid #999;
+  border-right: 1px solid #D0CCBA;
   padding: 6px 8px;
   text-align: left;
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 5;
+  user-select: none;
 }
 
 .catalog-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid #EEEEEE;
+  border-bottom: 1px solid #F0F0F0;
+  border-right: 1px solid #F8F8F8;
   vertical-align: middle;
 }
 
-.catalog-table tr:hover {
-  background: #F0F4FA;
-}
+.catalog-table tr:hover { background: #EBF1FD; }
 
-/* Status Badges */
+.col-cover    { width: 56px; }
+.col-year     { width: 64px; }
+.col-status   { width: 90px; }
+.col-rating   { width: 90px; }
+.col-hours    { width: 80px; }
+.col-platform { width: 110px; }
+.col-links    { width: 150px; }
+.col-manage   { width: 140px; }
+
 .status-pill {
   display: inline-block;
   padding: 2px 6px;
@@ -628,25 +613,12 @@ body {
   text-transform: uppercase;
 }
 
-.status-pill.played { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+.status-pill.played  { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
 .status-pill.backlog { background: #DBEAFE; color: #1D4ED8; border: 1px solid #93C5FD; }
 .status-pill.skipped { background: #FEE2E2; color: #B91C1C; border: 1px solid #FCA5A5; }
 
-/* In-place editor drawer */
-.catalog-edit-drawer {
-  background: #F4F2E8;
-  border: 1px solid #D0CCBA;
-  padding: 10px;
-  margin: 4px 8px;
-  border-radius: 3px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
 /* ==========================================================================
-   Standard XP Buttons & Tokens
+   Buttons
    ========================================================================== */
 .xp-button {
   font-family: var(--xp-font);
@@ -662,8 +634,8 @@ body {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  outline: none;
-  transition: all 0.05s ease;
+  text-decoration: none;
+  transition: filter 0.05s ease;
 }
 
 .xp-button:hover {
@@ -675,6 +647,21 @@ body {
   background: var(--xp-btn-active);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
   transform: translate(1px, 1px);
+}
+
+/* The old rule removed the focus ring from ~40 buttons with no replacement. */
+.xp-button:focus-visible,
+.xp-win-btn:focus-visible,
+.rating-btn:focus-visible,
+.xp-menu-item:focus-visible {
+  outline: 2px solid #FFCC00;
+  outline-offset: 1px;
+}
+
+.xp-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .xp-button-green {
@@ -701,8 +688,18 @@ body {
   text-shadow: 1px 1px 1px #061B40;
 }
 
+.toolbar-btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.btn-block {
+  width: 100%;
+  padding: 8px;
+}
+
 /* ==========================================================================
-   Status Bar
+   Status bar
    ========================================================================== */
 .xp-status-bar {
   background: var(--xp-bg);
@@ -712,6 +709,7 @@ body {
   align-items: center;
   gap: 4px;
   font-size: 11px;
+  flex-shrink: 0;
 }
 
 .xp-status-pane {
@@ -729,10 +727,16 @@ body {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.status-error {
+  color: #991D11;
+  font-weight: bold;
 }
 
 /* ==========================================================================
-   Modals & Dialogs
+   Modals & dialogs
    ========================================================================== */
 .xp-modal-overlay {
   position: fixed;
@@ -745,13 +749,12 @@ body {
   padding: 12px;
 }
 
-.xp-modal-overlay.open {
-  display: flex;
-}
+.xp-modal-overlay.open { display: flex; }
 
 .xp-dialog {
   width: 100%;
   max-width: 440px;
+  max-height: 92vh;
   background: var(--xp-bg);
   border: 3px solid var(--xp-title-border);
   border-radius: 8px 8px 0 0;
@@ -760,6 +763,8 @@ body {
   flex-direction: column;
   animation: xpPop 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
+
+.dialog-wide { max-width: 520px; }
 
 @keyframes xpPop {
   0% { transform: scale(0.92); opacity: 0; }
@@ -771,6 +776,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
+  line-height: 1.45;
+}
+
+.xp-dialog-body.centered {
+  text-align: center;
+  align-items: center;
+  gap: 10px;
 }
 
 .xp-dialog-footer {
@@ -780,32 +793,378 @@ body {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-
-/* ==========================================================================
-   SVG Icons Styling (No Emojis)
-   ========================================================================== */
-.xp-icon {
-  width: 16px;
-  height: 16px;
-  vertical-align: middle;
-  display: inline-block;
-  fill: currentColor;
   flex-shrink: 0;
 }
 
-.xp-icon-lg {
-  width: 24px;
-  height: 24px;
+/* ==========================================================================
+   Shared content helpers
+   ========================================================================== */
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.xp-icon-xl {
-  width: 36px;
-  height: 36px;
+.field-heading {
+  font-weight: bold;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.field-note {
+  font-size: 11px;
+  color: #555;
+  line-height: 1.4;
+}
+
+.accent { color: var(--xp-accent); }
+
+.full-width { width: 100%; }
+
+.xp-fieldset {
+  border: 1px solid #716F64;
+  padding: 12px;
+  border-radius: 3px;
+}
+
+.xp-fieldset legend {
+  padding: 0 4px;
+  font-weight: bold;
+  color: var(--xp-accent);
 }
 
 .xp-sunken {
   border: 2px inset #FFFFFF;
   background: #FFFFFF;
   box-shadow: inset 1px 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.export-link {
+  padding: 8px;
+  text-decoration: none;
+}
+
+/* Danger zone */
+.danger-warning {
+  font-size: 12px;
+  color: #991D11;
+  font-weight: bold;
+}
+
+.danger-btn {
+  padding: 8px;
+  justify-content: flex-start;
+  text-align: left;
+  gap: 8px;
+}
+
+.danger-btn-note {
+  font-size: 10px;
+  opacity: 0.85;
+  margin-left: auto;
+  font-weight: normal;
+}
+
+.danger-btn-max {
+  background: #880000;
+  border-color: #550000;
+}
+
+.danger-confirm-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.danger-confirm-title {
+  font-weight: bold;
+  color: #991D11;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+/* Mobile connect */
+.qr-holder {
+  display: flex;
+  justify-content: center;
+  min-height: 188px;
+  align-items: center;
+}
+
+.qr-holder img {
+  width: 180px;
+  height: 180px;
+  border: 2px solid #716F64;
+  background: #FFFFFF;
+  padding: 4px;
+}
+
+.lan-url {
+  padding: 8px;
+  font-weight: bold;
+  color: var(--xp-accent);
+  font-size: 14px;
+  width: 100%;
+  word-break: break-all;
+}
+
+.lan-url a { color: inherit; text-decoration: none; }
+.lan-url a:hover { text-decoration: underline; }
+
+/* Stats */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  text-align: center;
+}
+
+.stat-tile { padding: 6px 2px; }
+
+.stat-label {
+  font-size: 10px;
+  font-weight: bold;
+  color: #333333;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.stat-played  { color: var(--xp-green-mid); }
+.stat-backlog { color: #0055EA; }
+.stat-skipped { color: var(--xp-red-close); }
+
+.stats-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  text-align: center;
+}
+
+.stats-table th {
+  background: #E0DEC8;
+  border-bottom: 1px solid var(--xp-dark-border);
+  padding: 4px;
+  position: sticky;
+  top: 0;
+}
+
+.stats-table td { padding: 3px 4px; }
+
+.cell-strong { font-weight: bold; }
+.cell-accent { font-weight: bold; color: var(--xp-accent); }
+
+/* Shortcuts */
+.shortcuts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.shortcuts-table td {
+  padding: 5px 4px;
+  border-bottom: 1px solid #D4D0C8;
+}
+
+.shortcuts-table tr:last-child td { border-bottom: none; }
+
+.shortcuts-table .key {
+  font-weight: bold;
+  white-space: nowrap;
+  width: 120px;
+}
+
+/* About */
+.about-logo {
+  width: 42px;
+  height: 42px;
+}
+
+.about-title {
+  font-weight: bold;
+  font-size: 14px;
+  color: var(--xp-accent);
+}
+
+.about-details {
+  margin-top: 4px;
+  padding: 10px;
+  text-align: left;
+  font-size: 11px;
+  line-height: 1.6;
+  width: 100%;
+}
+
+/* ==========================================================================
+   Icons
+   ========================================================================== */
+.xp-icon {
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.xp-icon.icon-sm { width: 14px; height: 14px; }
+.xp-icon-xl { width: 36px; height: 36px; flex-shrink: 0; }
+
+/* Sound state is a class on <body>, so both the toolbar button and the status
+   bar switch icon and label together with no JS icon injection. */
+.icon-sound-off { display: none; }
+body.sound-off .icon-sound-on { display: none; }
+body.sound-off .icon-sound-off { display: inline-block; }
+
+/* ==========================================================================
+   Responsive - must stay last so these win without !important
+   ========================================================================== */
+
+/* Mobile and narrow tablets */
+@media (max-width: 819px) {
+  .xp-inspector { display: none; }
+  .xp-search-input { width: 130px; }
+}
+
+/* Desktop: use the whole viewport, deck left / inspector right */
+@media (min-width: 820px) {
+  body {
+    padding: 8px 12px;
+    height: 100vh;
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .xp-window {
+    max-width: none;
+    width: 100%;
+    height: 100%;
+    max-height: calc(100vh - 16px);
+  }
+
+  .xp-workspace {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    padding: 12px;
+    background: var(--xp-bg);
+    overflow: hidden;
+  }
+
+  .deck-column { height: 100%; }
+
+  .xp-inspector {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .xp-inspector-body {
+    flex: 1;
+    min-height: 0;
+    padding: 18px;
+    gap: 14px;
+  }
+
+  .xp-inspector-desc-box {
+    max-height: none;
+    font-size: 15px;
+    line-height: 1.75;
+    padding: 14px 16px;
+    flex: 1;
+  }
+}
+
+/* Respect a reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   First-run setup wizard
+   ========================================================================== */
+.setup-intro p + p { margin-top: 6px; }
+
+.setup-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: bold;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.chip-played  { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+.chip-backlog { background: #DBEAFE; color: #1D4ED8; border: 1px solid #93C5FD; }
+.chip-skipped { background: #FEE2E2; color: #B91C1C; border: 1px solid #FCA5A5; }
+
+.setup-why { margin-bottom: 8px; }
+
+.setup-steps {
+  margin: 0 0 0 18px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.setup-steps code {
+  background: #FFFFFF;
+  border: 1px solid #D0CCBA;
+  border-radius: 2px;
+  padding: 0 4px;
+  font-family: Consolas, "Courier New", monospace;
+  user-select: all;   /* click once to select the whole value */
+}
+
+.setup-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.setup-fields label {
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.setup-fields input {
+  width: 100%;
+  font-weight: normal;
+  font-family: Consolas, "Courier New", monospace;
+}
+
+.setup-status {
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.setup-busy  { background: #FEF9C3; color: #854D0E; border: 1px solid #FDE047; }
+.setup-ok    { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; }
+.setup-error { background: #FEE2E2; color: #B91C1C; border: 1px solid #FCA5A5; }
+
+@media (max-width: 560px) {
+  .setup-fields { grid-template-columns: 1fr; gap: 4px; }
 }
