@@ -29,6 +29,34 @@ const ADD_GAME_MARKUP = `
       <div class="add-results xp-sunken" id="add-results">
         <p class="add-placeholder">Search for a game to get started.</p>
       </div>
+
+      <details class="manual-block" id="manual-block">
+        <summary>Not on IGDB? Add it by hand</summary>
+        <p class="field-note">
+          For anything the game database does not carry - homebrew, mods, fan
+          translations, or something too obscure to be listed.
+        </p>
+        <div class="manual-fields">
+          <label for="manual-title">Title *</label>
+          <input type="text" id="manual-title" class="xp-select" maxlength="200" placeholder="Required">
+
+          <label for="manual-year">Release year</label>
+          <input type="number" id="manual-year" class="xp-select" min="1950" max="2100" placeholder="e.g. 1997">
+
+          <label for="manual-platforms">Platform(s)</label>
+          <input type="text" id="manual-platforms" class="xp-select" maxlength="200" placeholder="e.g. Amiga, DOS">
+
+          <label for="manual-genres">Genre(s)</label>
+          <input type="text" id="manual-genres" class="xp-select" maxlength="200" placeholder="e.g. Puzzle">
+
+          <label for="manual-summary">Notes</label>
+          <textarea id="manual-summary" class="xp-select" rows="2" maxlength="4000" placeholder="Optional"></textarea>
+        </div>
+        <div class="manual-actions">
+          <span class="manual-status" id="manual-status"></span>
+          <button type="button" class="xp-button xp-button-green" id="manual-create">Create &amp; Add</button>
+        </div>
+      </details>
     </div>
 
     <div class="xp-dialog-footer">
@@ -87,6 +115,52 @@ class AddGameDialog {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.isOpen()) this.close();
     });
+
+    $('manual-create').addEventListener('click', () => this.createManual());
+  }
+
+  /**
+   * Create a game IGDB does not have. It lands in the results list like any
+   * other row, so the same three buttons file it.
+   */
+  async createManual() {
+    const title = $('manual-title').value.trim();
+    const status = $('manual-status');
+    if (!title) {
+      status.textContent = 'A title is required.';
+      status.className = 'manual-status error-text';
+      return;
+    }
+
+    const button = $('manual-create');
+    button.disabled = true;
+    status.textContent = 'Creating...';
+    status.className = 'manual-status';
+
+    const year = parseInt($('manual-year').value, 10);
+    try {
+      const { game } = await API.addManualGame({
+        title,
+        release_year: Number.isFinite(year) ? year : null,
+        platforms: $('manual-platforms').value.trim(),
+        genres: $('manual-genres').value.trim(),
+        summary: $('manual-summary').value.trim()
+      });
+
+      ['manual-title', 'manual-year', 'manual-platforms', 'manual-genres', 'manual-summary']
+        .forEach(id => { $(id).value = ''; });
+      status.textContent = `"${game.title}" created - now pick a status above.`;
+      status.className = 'manual-status ok-text';
+
+      // put it at the top of the results so the status buttons are right there
+      this.results.prepend(this.buildRow(game));
+      this.results.scrollTop = 0;
+    } catch (err) {
+      status.textContent = err.message;
+      status.className = 'manual-status error-text';
+    } finally {
+      button.disabled = false;
+    }
   }
 
   isOpen() {

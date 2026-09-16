@@ -2,7 +2,7 @@ import io
 import logging
 import socket
 from contextlib import asynccontextmanager
-from typing import Optional, Literal
+from typing import Optional, Literal, List
 from fastapi import FastAPI, Query, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 import segno
 
 from . import igdb_client
+from . import steam_client
 from . import config
 from .config import STATIC_DIR, HOST, PORT, has_twitch_credentials
 from .db import (
@@ -27,6 +28,10 @@ from .db import (
     get_all_settings,
     set_setting,
     get_catalog_games,
+    create_manual_game,
+    find_game_by_title,
+    record_swipes,
+    get_game_by_id,
     update_swipe_item,
     delete_swipe_item,
     reset_swipes,
@@ -60,6 +65,7 @@ async def lifespan(app: FastAPI):
     logger.info("XP-Deck ready on http://%s:%s", HOST, PORT)
     yield
     await igdb_client.close_client()
+    await steam_client.close_client()
 
 
 app = FastAPI(
@@ -100,6 +106,34 @@ class SetupRequest(BaseModel):
     client_secret: str = Field(..., min_length=10, max_length=200)
 
 
+class SteamKeyRequest(BaseModel):
+    api_key: str = Field(..., min_length=16, max_length=64)
+
+
+class SteamScanRequest(BaseModel):
+    profile: str = Field(..., min_length=2, max_length=120)
+    min_hours: float = Field(1.0, ge=0, le=10000)
+
+
+class SteamImportEntry(BaseModel):
+    igdb_id: int
+    hours_played: Optional[int] = Field(None, ge=0, le=99999)
+
+
+class SteamImportRequest(BaseModel):
+    games: List[SteamImportEntry] = Field(..., max_length=5000)
+    status: Status = "played"
+    platform_played: Optional[str] = "PC (Steam)"
+
+
+class ManualGameRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    release_year: Optional[int] = Field(None, ge=1950, le=2100)
+    platforms: str = Field("", max_length=200)
+    genres: str = Field("", max_length=200)
+    summary: str = Field("", max_length=4000)
+
+
 def _lan_ip() -> str:
     """Best guess at this machine's LAN address."""
     try:
@@ -137,6 +171,127 @@ async def save_setup(payload: SetupRequest):
     igdb_client.reset_token()   # discard any token from the previous pair
     logger.info("IGDB credentials saved and verified")
     return {"success": True}
+
+
+@app.get("/api/steam")
+async def steam_status():
+    """Steam import readiness. Never returns the API key itself."""
+    return {
+        "has_api_key": steam_client.has_api_key(),
+        "profile": get_all_settings().get("steam_profile", ""),
+    }
+
+
+@app.post("/api/steam/key")
+async def save_steam_key(payload: SteamKeyRequest):
+    """Verify a Steam Web API key with Steam, then persist it."""
+    problem = await steam_client.verify_api_key(payload.api_key)
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+
+    config.save_steam_api_key(payload.api_key)
+    logger.info("Steam API key saved and verified")
+    return {"success": True}
+
+
+@app.post("/api/steam/scan")
+async def steam_scan(payload: SteamScanRequest):
+    """Read a Steam library and match it against IGDB, without importing.
+
+    Deliberately a preview: a library is hundreds of games and a bulk write
+    should be something the user sees and confirms first.
+    """
+    if not steam_client.has_api_key():
+        raise HTTPException(status_code=400, detail="No Steam API key configured.")
+
+    steam_id, error = await steam_client.resolve_steam_id(config.STEAM_API_KEY, payload.profile)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    owned, error = await steam_client.fetch_owned_games(config.STEAM_API_KEY, steam_id)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+
+    set_setting("steam_profile", payload.profile.strip())
+
+    min_minutes = payload.min_hours * 60
+    kept = [g for g in owned if g["minutes"] >= min_minutes]
+
+    mapping = await igdb_client.map_steam_appids([g["appid"] for g in kept])
+
+    # Cache the matched games so the import can attach swipes to them
+    new_ids = [i for i in set(mapping.values()) if not game_exists(i)]
+    if new_ids:
+        upsert_cached_games(await igdb_client.fetch_games_by_ids(new_ids))
+
+    matched, unmatched = [], []
+    for game in kept:
+        igdb_id = mapping.get(game["appid"])
+        cached = get_game_by_id(igdb_id) if igdb_id else None
+        hours = round(game["minutes"] / 60)
+        if cached:
+            matched.append({
+                "igdb_id": igdb_id,
+                "title": cached["title"],
+                "release_year": cached["release_year"],
+                "cover_url": cached["cover_url"],
+                "steam_name": game["name"],
+                "hours_played": hours,
+                "minutes": game["minutes"],
+                "current_status": None,
+            })
+        else:
+            unmatched.append({"appid": game["appid"], "name": game["name"], "hours_played": hours})
+
+    for entry in attach_swipe_status(matched):
+        entry["current_status"] = entry.pop("status", None)
+
+    matched.sort(key=lambda g: g["minutes"], reverse=True)
+    unmatched.sort(key=lambda g: g["hours_played"], reverse=True)
+
+    return {
+        "steam_id": steam_id,
+        "total_owned": len(owned),
+        "after_filter": len(kept),
+        "matched": matched,
+        "unmatched": unmatched,
+    }
+
+
+@app.post("/api/steam/import")
+async def steam_import(payload: SteamImportRequest):
+    """Write the games the user confirmed from a scan."""
+    imported = record_swipes([
+        {
+            "igdb_id": g.igdb_id,
+            "status": payload.status,
+            "hours_played": g.hours_played,
+            "platform_played": payload.platform_played,
+        }
+        for g in payload.games
+    ])
+    logger.info("Steam import: recorded %d games as %s", imported, payload.status)
+    return {"success": True, "imported": imported}
+
+
+@app.post("/api/games/manual")
+async def add_manual_game(payload: ManualGameRequest):
+    """Create a game IGDB does not have, so it can still be catalogued."""
+    existing = find_game_by_title(payload.title)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f'"{existing["title"]}" is already in the database.'
+        )
+
+    game = create_manual_game(
+        title=payload.title,
+        release_year=payload.release_year,
+        platforms=payload.platforms,
+        genres=payload.genres,
+        summary=payload.summary,
+    )
+    return {"success": True, "game": game}
 
 
 @app.get("/api/network-info")

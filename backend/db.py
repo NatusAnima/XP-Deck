@@ -281,6 +281,84 @@ def get_game_by_id(igdb_id: int) -> Optional[Dict[str, Any]]:
         return _row_to_game(row) if row else None
 
 
+def create_manual_game(
+    title: str,
+    release_year: Optional[int] = None,
+    platforms: str = "",
+    genres: str = "",
+    summary: str = "",
+    cover_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Add a game IGDB does not have, under a negative id.
+
+    Real IGDB ids are always positive, so negatives can never be overwritten by
+    a later IGDB fetch. The seed catalog once used made-up positive ids and got
+    silently clobbered, taking the user's swipes with it.
+    """
+    with closing(get_connection()) as conn, conn:
+        floor = conn.execute("SELECT MIN(igdb_id) FROM cached_games").fetchone()[0]
+        new_id = min(0, floor or 0) - 1
+
+        conn.execute("""
+            INSERT INTO cached_games (
+                igdb_id, title, release_year, cover_url, screenshots,
+                summary, genres, platforms, total_rating_count, rating
+            ) VALUES (?, ?, ?, ?, '[]', ?, ?, ?, 0, 0)
+        """, (new_id, title.strip(), release_year, cover_url,
+              summary.strip(), genres.strip(), platforms.strip()))
+
+    logger.info("Added manual game %r as id %d", title, new_id)
+    return get_game_by_id(new_id)
+
+
+def find_game_by_title(title: str) -> Optional[Dict[str, Any]]:
+    """Exact (case-insensitive) title match, to warn about duplicates."""
+    with closing(get_connection()) as conn:
+        row = conn.execute(
+            f"SELECT {GAME_COLUMNS} FROM cached_games g WHERE g.title = ? COLLATE NOCASE",
+            (title.strip(),)
+        ).fetchone()
+        return _row_to_game(row) if row else None
+
+
+def record_swipes(entries: List[Dict[str, Any]]) -> int:
+    """Record many swipes at once, for bulk imports.
+
+    One transaction rather than one per game: a Steam library is hundreds of
+    rows and per-row commits make the import crawl.
+    """
+    if not entries:
+        return 0
+
+    with closing(get_connection()) as conn, conn:
+        # skip anything whose game is not cached, rather than failing the batch
+        cached = {r[0] for r in conn.execute("SELECT igdb_id FROM cached_games")}
+        rows = [e for e in entries if e["igdb_id"] in cached]
+
+        conn.executemany("""
+            INSERT INTO user_swipes (igdb_id, status, platform_played, hours_played, created_at)
+            VALUES (:igdb_id, :status, :platform_played, :hours_played, CURRENT_TIMESTAMP)
+            ON CONFLICT(igdb_id) DO UPDATE SET
+                status=excluded.status,
+                platform_played=excluded.platform_played,
+                hours_played=excluded.hours_played,
+                created_at=CURRENT_TIMESTAMP
+        """, [
+            {
+                "igdb_id": e["igdb_id"],
+                "status": e["status"],
+                "platform_played": e.get("platform_played"),
+                "hours_played": e.get("hours_played"),
+            }
+            for e in rows
+        ])
+        conn.executemany(
+            "INSERT INTO swipe_history (igdb_id, action) VALUES (?, ?)",
+            [(e["igdb_id"], e["status"]) for e in rows]
+        )
+    return len(rows)
+
+
 def game_exists(igdb_id: int) -> bool:
     """True if the game is in the local cache (guards the swipe foreign key)."""
     with closing(get_connection()) as conn:

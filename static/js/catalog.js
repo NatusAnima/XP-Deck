@@ -54,12 +54,19 @@ class CatalogExplorer {
     // The dialog reloads the list afterwards, so a game added here shows up
     // immediately behind it.
     this.addDialog = new AddGameDialog(() => this.load());
-    $('btn-add-game').addEventListener('click', () => this.addDialog.open());
-    const task = $('task-add-game');
-    task.addEventListener('click', () => this.addDialog.open());
-    task.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.addDialog.open(); }
-    });
+    this.steamDialog = new SteamImportDialog(() => this.load());
+
+    const openOn = (id, dialog) => {
+      const el = $(id);
+      el.addEventListener('click', () => dialog.open());
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); dialog.open(); }
+      });
+    };
+    openOn('btn-add-game', this.addDialog);
+    openOn('task-add-game', this.addDialog);
+    openOn('btn-steam', this.steamDialog);
+    openOn('task-steam', this.steamDialog);
 
     // one delegated listener for every row action
     $('catalog-tbody').addEventListener('click', (e) => {

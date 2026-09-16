@@ -22,6 +22,7 @@ PLACEHOLDERS = {"your_twitch_client_id_here", "your_twitch_client_secret_here", 
 # `config.TWITCH_CLIENT_ID`, never `from .config import TWITCH_CLIENT_ID`.
 TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID", "").strip()
 TWITCH_CLIENT_SECRET = os.getenv("TWITCH_CLIENT_SECRET", "").strip()
+STEAM_API_KEY = os.getenv("STEAM_API_KEY", "").strip()
 
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(DATA_DIR / "games.db")))
 HOST = os.getenv("HOST", "0.0.0.0")
@@ -32,6 +33,17 @@ def has_twitch_credentials() -> bool:
     """True when both Twitch credentials are set to something real."""
     return (TWITCH_CLIENT_ID not in PLACEHOLDERS
             and TWITCH_CLIENT_SECRET not in PLACEHOLDERS)
+
+
+def save_steam_api_key(api_key: str) -> None:
+    """Persist the Steam Web API key to .env and apply it to this process."""
+    global STEAM_API_KEY
+
+    api_key = api_key.strip()
+    ENV_PATH.touch(exist_ok=True)
+    set_key(str(ENV_PATH), "STEAM_API_KEY", api_key)
+    STEAM_API_KEY = api_key
+    os.environ["STEAM_API_KEY"] = api_key
 
 
 def save_twitch_credentials(client_id: str, client_secret: str) -> None:

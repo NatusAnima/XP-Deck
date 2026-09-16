@@ -17,6 +17,14 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 TWITCH_TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 IGDB_GAMES_URL = "https://api.igdb.com/v4/games"
 IGDB_COUNT_URL = "https://api.igdb.com/v4/games/count"
+IGDB_EXTERNAL_URL = "https://api.igdb.com/v4/external_games"
+
+# IGDB's external_game_source id for Steam. The older "category" field is
+# deprecated in this API version and matches nothing.
+STEAM_SOURCE = 1
+
+# IGDB caps a single response at 500 rows.
+MAX_ROWS = 500
 IMAGE_URL = "https://images.igdb.com/igdb/image/upload/t_1080p/{}.jpg"
 
 # Main Game, Remake, Remaster, Expanded Game - filters out shovelware and DLC.
@@ -198,6 +206,61 @@ async def fetch_top_games_for_year(year: int, limit: int = 50, offset: int = 0) 
 
     logger.info("Fetched %d games from IGDB for %d (offset %d)", len(games), year, offset)
     return [_normalize(g, year) for g in games]
+
+
+async def _post(url: str, body: str) -> List[Dict[str, Any]]:
+    """POST an Apicalypse query to any IGDB endpoint."""
+    token = await _get_token()
+    if not token:
+        return []
+    headers = {
+        "Client-ID": config.TWITCH_CLIENT_ID,
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    try:
+        resp = await _client.post(url, headers=headers, content=body)
+        resp.raise_for_status()
+        return resp.json()
+    except (httpx.HTTPError, ValueError) as e:
+        logger.error("IGDB request to %s failed: %s", url, e)
+        return []
+
+
+async def map_steam_appids(appids: List[int]) -> Dict[int, int]:
+    """Map Steam app ids to IGDB game ids.
+
+    Batched, because a Steam library is routinely hundreds of games and one
+    lookup each would take minutes and hammer the rate limit.
+    """
+    mapping: Dict[int, int] = {}
+    for i in range(0, len(appids), MAX_ROWS):
+        chunk = appids[i:i + MAX_ROWS]
+        uids = ",".join(f'"{a}"' for a in chunk)
+        rows = await _post(IGDB_EXTERNAL_URL, (
+            f"fields game, uid;"
+            f" where external_game_source = {STEAM_SOURCE} & uid = ({uids});"
+            f" limit {MAX_ROWS};"
+        ))
+        for row in rows:
+            uid, game = row.get("uid"), row.get("game")
+            if uid and game and str(uid).isdigit():
+                mapping[int(uid)] = game
+
+    logger.info("Matched %d of %d Steam apps to IGDB games", len(mapping), len(appids))
+    return mapping
+
+
+async def fetch_games_by_ids(igdb_ids: List[int]) -> List[Dict[str, Any]]:
+    """Fetch full metadata for specific IGDB game ids."""
+    games: List[Dict[str, Any]] = []
+    for i in range(0, len(igdb_ids), MAX_ROWS):
+        chunk = igdb_ids[i:i + MAX_ROWS]
+        rows = await _post(IGDB_GAMES_URL, (
+            f"{FIELDS} where id = ({','.join(str(g) for g in chunk)}); limit {MAX_ROWS};"
+        ))
+        games.extend(_normalize(g, None) for g in rows)
+    return games
 
 
 async def search_games(query: str, limit: int = 20) -> List[Dict[str, Any]]:

@@ -2,12 +2,27 @@
  * API.JS: REST client for the XP-Deck backend.
  */
 
+/** Turn FastAPI's `detail` into something worth showing a person. */
+function describeError(detail, res) {
+  if (typeof detail === 'string') return detail;
+  // 422 validation errors come back as [{loc, msg, type}, ...]
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map(d => {
+        const field = Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : null;
+        return field ? `${field}: ${d.msg}` : d.msg;
+      })
+      .join('; ');
+  }
+  return `${res.status} ${res.statusText}`;
+}
+
 async function request(url, options) {
   const res = await fetch(url, options);
   if (!res.ok) {
     // surface the backend's own message when it sent one
     const detail = await res.json().then(d => d.detail).catch(() => null);
-    throw new Error(detail || `${res.status} ${res.statusText}`);
+    throw new Error(describeError(detail, res));
   }
   return res.json();
 }
@@ -80,6 +95,26 @@ const API = {
 
   getNetworkInfo() {
     return request('/api/network-info');
+  },
+
+  addManualGame(data) {
+    return request('/api/games/manual', json('POST', data));
+  },
+
+  getSteamStatus() {
+    return request('/api/steam');
+  },
+
+  saveSteamKey(apiKey) {
+    return request('/api/steam/key', json('POST', { api_key: apiKey }));
+  },
+
+  scanSteamLibrary(profile, minHours) {
+    return request('/api/steam/scan', json('POST', { profile, min_hours: minHours }));
+  },
+
+  importSteamGames(games, status) {
+    return request('/api/steam/import', json('POST', { games, status }));
   },
 
   getSetupStatus() {

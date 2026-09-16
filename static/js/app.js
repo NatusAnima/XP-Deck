@@ -79,6 +79,11 @@ class XPDeckApp {
     );
     this.shortcuts = new KeyboardShortcuts(this);
     this.addDialog = new AddGameDialog((g, status, prev) => this.onGameAdded(g, status, prev));
+    // a bulk import can touch anything, so reload rather than patch counters
+    this.steamDialog = new SteamImportDialog(async () => {
+      await this.refreshStats();
+      await this.loadYear(this.currentYear);
+    });
 
     await this.loadSettings();
     await this.refreshStats();
@@ -1050,6 +1055,7 @@ class XPDeckApp {
 
     const menu = {
       'menu-add-game': () => this.openAddGame(),
+      'menu-steam': () => { this.playSound('click'); this.steamDialog.open(); },
       'menu-catalog': () => { window.location.href = '/catalog'; },
       'menu-export': () => this.openModal('modal-export'),
       'menu-danger': () => this.openModal('modal-danger'),

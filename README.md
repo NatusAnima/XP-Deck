@@ -14,6 +14,9 @@
   * **Swipe Up / `W` or `↑`:** Send to **Active Backlog** (want to play).
   * **`Ctrl+Z` / `U`:** **Undo** last swipe (restores the card to the deck).
 * **Search by Title:** Find any game across every year without knowing its release date — results drop straight into the deck.
+* **Add Without Swiping:** An **Add a Game** dialog on both the deck and the catalog — search a title, then file it as Played, Backlog or Skipped in one click. Games already in your archive show their current status, so it doubles as a way to move them.
+* **Manual Entries:** Homebrew, mods, fan translations or anything IGDB simply does not list can be added by hand. These get negative ids, so a later IGDB fetch can never overwrite them.
+* **Steam Import:** Pull your Steam library in bulk, with playtime. Set a minimum-hours filter (skip everything under an hour, say), review exactly what matched, and confirm before anything is written. Games already logged are listed but unticked, so a re-import never quietly overwrites your own edits.
 * **IGDB Integration & Anti-Shovelware Filtering:**
   * Connects directly to Twitch OAuth2 & IGDB API v4.
   * Filters low-effort titles via popularity ranking and category filtering (`game_type = 0, 8, 9, 10`).
@@ -60,6 +63,21 @@ you the six steps, but for reference:
 They are stored in a plain file called `.env` beside the app, are never sent
 anywhere except Twitch, and you can change them later under
 **Options → IGDB Credentials**.
+
+### Importing your Steam library (optional)
+
+**File → Import from Steam**, or the **Import Steam** button in the catalog.
+
+You will need a Steam Web API key — free and instant from
+[steamcommunity.com/dev/apikey](https://steamcommunity.com/dev/apikey) (enter
+any domain, `localhost` works). The app verifies and stores it once.
+
+Then enter your profile name, SteamID64 or profile URL, choose a minimum-hours
+filter, and scan. Nothing is written until you review the list and press
+Import.
+
+> Steam only reports your games if the profile's **Game details** privacy
+> setting is Public. If the scan comes back empty, that is almost always why.
 
 ---
 
@@ -118,6 +136,7 @@ xp-deck/
 │   ├── config.py           # Environment variable loader (.env)
 │   ├── db.py               # SQLite schema, migrations, queries
 │   ├── igdb_client.py      # Twitch token handling & Apicalypse queries
+│   ├── steam_client.py     # Steam Web API: owned games and playtime
 │   └── export_service.py   # Clean CSV, JSON, and Playnite export
 ├── static/
 │   ├── index.html          # Swiper frame + <template> definitions
@@ -128,6 +147,8 @@ xp-deck/
 │   │   └── catalog.css     # Explorer chrome for the archive page
 │   └── js/
 │       ├── shared.js       # $, clone(), gameLinks() — used by both pages
+│       ├── add-game.js     # Add a Game dialog (shared by both pages)
+│       ├── steam-import.js # Steam library import (shared by both pages)
 │       ├── api.js          # Backend fetch client
 │       ├── gestures.js     # Pointer swipe physics
 │       ├── shortcuts.js    # Keyboard controls
@@ -149,7 +170,7 @@ Schema and data migrations run automatically at startup, gated on SQLite's
 
 ```sql
 CREATE TABLE cached_games (
-    igdb_id INTEGER PRIMARY KEY,   -- a real IGDB id; never synthesized
+    igdb_id INTEGER PRIMARY KEY,   -- a real IGDB id, or negative for a manual entry
     title TEXT NOT NULL,
     release_year INTEGER,          -- NULL when IGDB has no release date
     cover_url TEXT,
