@@ -37,6 +37,14 @@ def get_connection() -> sqlite3.Connection:
     return conn
 
 
+def _escape_like(text: str) -> str:
+    """Escape LIKE wildcards so searching for "%" matches a literal percent."""
+    return (text.strip()
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_"))
+
+
 def _row_to_game(row: sqlite3.Row) -> Dict[str, Any]:
     """Convert a cached_games row to a dict, decoding the screenshots JSON."""
     item = dict(row)
@@ -219,20 +227,49 @@ def get_unswiped_games(year: int, limit: int = 30) -> List[Dict[str, Any]]:
         return [_row_to_game(row) for row in cursor.fetchall()]
 
 
-def search_cached_games(query: str, limit: int = 20) -> List[Dict[str, Any]]:
-    """Title search over the local cache, used when IGDB is unavailable."""
+def search_cached_games(query: str, limit: int = 20,
+                        include_logged: bool = False) -> List[Dict[str, Any]]:
+    """Title search over the local cache, used when IGDB is unavailable.
+
+    The deck wants unreviewed games only; the Add Game dialog wants everything,
+    so it can show what is already in the archive.
+    """
     # escape LIKE wildcards so a search for "%" doesn't match everything
-    pattern = "%" + query.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    pattern = "%" + _escape_like(query) + "%"
+    unswiped_only = "" if include_logged else "s.igdb_id IS NULL AND"
     with closing(get_connection()) as conn:
         cursor = conn.execute(f"""
-            SELECT {GAME_COLUMNS}
+            SELECT {GAME_COLUMNS}, s.status
             FROM cached_games g
             LEFT JOIN user_swipes s ON g.igdb_id = s.igdb_id
-            WHERE s.igdb_id IS NULL AND g.title LIKE ? ESCAPE '\\'
+            WHERE {unswiped_only} g.title LIKE ? ESCAPE '\\'
             ORDER BY g.total_rating_count DESC
             LIMIT ?
         """, (pattern, limit))
         return [_row_to_game(row) for row in cursor.fetchall()]
+
+
+def attach_swipe_status(games: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Fill in each game's current archive status (None when not yet logged).
+
+    IGDB knows nothing about the local archive, so remote results arrive
+    without it.
+    """
+    if not games:
+        return games
+
+    ids = [g["igdb_id"] for g in games]
+    placeholders = ",".join("?" * len(ids))
+    with closing(get_connection()) as conn:
+        rows = conn.execute(
+            f"SELECT igdb_id, status FROM user_swipes WHERE igdb_id IN ({placeholders})",
+            ids
+        ).fetchall()
+
+    status_by_id = dict(rows)
+    for game in games:
+        game["status"] = status_by_id.get(game["igdb_id"])
+    return games
 
 
 def get_game_by_id(igdb_id: int) -> Optional[Dict[str, Any]]:
@@ -428,10 +465,8 @@ def get_catalog_games(
         params.append(status.lower())
 
     if search and search.strip():
-        # escape LIKE wildcards so a search for "%" doesn't match everything
         query += " AND g.title LIKE ? ESCAPE '\\'"
-        escaped = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        params.append(f"%{escaped}%")
+        params.append(f"%{_escape_like(search)}%")
 
     query += " ORDER BY " + SORT_OPTIONS.get(sort_by, SORT_OPTIONS["date_desc"])
 

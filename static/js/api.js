@@ -24,8 +24,10 @@ const API = {
     return request(`/api/deck?${params}`);
   },
 
-  searchGames(query) {
-    return request(`/api/search?${new URLSearchParams({ q: query })}`);
+  searchGames(query, includeLogged = false) {
+    const params = new URLSearchParams({ q: query });
+    if (includeLogged) params.set('include_logged', 'true');
+    return request(`/api/search?${params}`);
   },
 
   recordSwipe(igdbId, status, platformPlayed = null, hoursPlayed = null, userRating = null) {

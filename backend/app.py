@@ -17,6 +17,7 @@ from .db import (
     upsert_cached_games,
     get_unswiped_games,
     search_cached_games,
+    attach_swipe_status,
     game_exists,
     record_swipe,
     undo_last_swipe,
@@ -233,17 +234,29 @@ async def get_deck(
 
 
 @app.get("/api/search")
-async def search(q: str = Query(..., min_length=2, max_length=100)):
-    """Search games by title across all years, falling back to the local cache."""
+async def search(
+    q: str = Query(..., min_length=2, max_length=100),
+    include_logged: bool = Query(False, description="Also return games already in the archive")
+):
+    """Search games by title across all years, falling back to the local cache.
+
+    Every result carries its current archive status, so callers can tell a new
+    game from one already logged. The deck asks for unlogged games only; the
+    Add Game dialog wants both, so it can show what is already there.
+    """
     games = []
     if has_twitch_credentials():
         remote = await igdb_client.search_games(q)
         if remote:
+            # caching them is what lets /api/swipe accept them afterwards
             upsert_cached_games(remote)
-            games = remote
+            games = attach_swipe_status(remote)
 
     if not games:
-        games = search_cached_games(q)
+        games = search_cached_games(q, include_logged=include_logged)
+
+    if not include_logged:
+        games = [g for g in games if not g.get("status")]
 
     return {"query": q, "games": games, "has_credentials": has_twitch_credentials()}
 
