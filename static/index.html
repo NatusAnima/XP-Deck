@@ -116,8 +116,13 @@
     <section class="xp-toolbar" aria-label="Toolbar">
       <div class="xp-toolbar-left">
         <div class="xp-year-selector">
-          <label for="year-select" class="xp-label">Year:</label>
-          <select id="year-select" class="xp-select" aria-label="Select Release Year"></select>
+          <label for="year-select" class="xp-label">Show:</label>
+          <select id="year-select" class="xp-select" aria-label="Which games to show"></select>
+          <button class="xp-button toolbar-btn-sm" id="btn-filters" title="Genre, sort order and rating floor">
+            <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#2B579A" d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+            <span>Filters</span>
+          </button>
+          <span class="filter-summary" id="filter-summary"></span>
         </div>
 
         <form class="xp-search" id="deck-search-form" role="search">
@@ -499,6 +504,53 @@
         <span id="viewer-counter" class="viewer-counter">1 / 1</span>
         <button class="xp-button" id="viewer-next">Next &#9654;</button>
         <button class="xp-button modal-close spaced-left">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="xp-modal-overlay" id="modal-filters" role="dialog" aria-labelledby="modal-filters-title" aria-modal="true">
+    <div class="xp-dialog">
+      <div class="xp-title-bar">
+        <div class="xp-title-content">
+          <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFF" d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+          <span id="modal-filters-title">Deck Filters</span>
+        </div>
+        <button class="xp-win-btn close modal-close" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="xp-dialog-body">
+        <div class="filter-fields">
+          <label for="filter-genre">Genre</label>
+          <select id="filter-genre" class="xp-select">
+            <option value="">All genres</option>
+          </select>
+
+          <label for="filter-sort">Order by</label>
+          <select id="filter-sort" class="xp-select">
+            <option value="popular">Most rated (popular first)</option>
+            <option value="rating">Highest rated</option>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+          </select>
+
+          <label for="filter-min-ratings">Minimum ratings</label>
+          <div class="filter-ratings-row">
+            <input type="number" id="filter-min-ratings" class="xp-select" min="0" max="100000" step="10" value="0">
+            <span class="field-note" id="filter-ratings-hint"></span>
+          </div>
+        </div>
+
+        <p class="field-note">
+          <strong>Minimum ratings</strong> is the quality floor - how many people on
+          IGDB have rated a game before it shows up. Leave it at 0 to see
+          everything. <strong>Highest rated</strong> needs a floor of a few hundred to
+          be meaningful, or it surfaces obscure games with a handful of perfect
+          scores.
+        </p>
+      </div>
+      <div class="xp-dialog-footer">
+        <button class="xp-button" id="btn-filters-reset">Reset</button>
+        <button class="xp-button xp-button-green" id="btn-filters-apply">Apply</button>
+        <button class="xp-button modal-close">Cancel</button>
       </div>
     </div>
   </div>

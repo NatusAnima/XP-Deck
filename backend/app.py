@@ -2,7 +2,7 @@ import io
 import logging
 import socket
 from contextlib import asynccontextmanager
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Dict, Any
 from fastapi import FastAPI, Query, HTTPException, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -23,8 +23,10 @@ from .db import (
     record_swipe,
     undo_last_swipe,
     get_stats,
-    get_year_total,
-    set_year_total,
+    get_filter_total,
+    set_filter_total,
+    count_deck_games,
+    DECK_SORTS,
     get_all_settings,
     set_setting,
     get_catalog_games,
@@ -47,6 +49,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(name)s: %(messa
 logger = logging.getLogger("xpdeck.app")
 
 Status = Literal["played", "skipped", "backlog"]
+SORT_KEYS = set(DECK_SORTS)
 
 # Refill the local cache from IGDB when the deck drops below this many cards.
 REFILL_THRESHOLD = 10
@@ -336,55 +339,94 @@ async def update_settings(payload: SettingsUpdateRequest):
     return {"success": True, "settings": get_all_settings()}
 
 
+# Genres are a small, effectively static list; cached for the process so the
+# filter dialog does not re-query IGDB on every page load.
+_genre_cache: List[Dict[str, Any]] = []
+
+
+@app.get("/api/genres")
+async def list_genres():
+    """The IGDB genre list, for the deck filter."""
+    global _genre_cache
+    if not _genre_cache and has_twitch_credentials():
+        _genre_cache = await igdb_client.fetch_genres()
+    return {"genres": _genre_cache}
+
+
+def _genre_id(name: Optional[str]) -> Optional[int]:
+    """Map a genre name back to its IGDB id, for the remote query."""
+    if not name:
+        return None
+    return next((g["id"] for g in _genre_cache if g["name"] == name), None)
+
+
 @app.get("/api/deck")
 async def get_deck(
-    year: int = Query(..., ge=1970, le=2030),
+    year_from: Optional[int] = Query(None, ge=1950, le=2100),
+    year_to: Optional[int] = Query(None, ge=1950, le=2100),
+    genre: Optional[str] = Query(None, max_length=60),
+    min_ratings: int = Query(0, ge=0, le=100000),
+    sort: str = Query("popular"),
     limit: int = Query(30, ge=1, le=100),
-    igdb_offset: int = Query(0, ge=0, description="Pagination cursor into IGDB's ranking")
+    igdb_offset: int = Query(0, ge=0, description="Pagination cursor into IGDB's ranking"),
 ):
-    """Return unswiped games for a year, topping up from IGDB when it runs low.
+    """Return unswiped games matching the filter, topping up from IGDB.
 
     There is deliberately no offset into the local query: swiped games are
     excluded by the join, so the unswiped set is self-paginating. Paging it
     would skip games the user never saw as the set shrinks. `igdb_offset` is a
     separate cursor into IGDB's own ranking, used only to fetch more.
     """
-    games = get_unswiped_games(year, limit=limit)
+    if sort not in SORT_KEYS:
+        raise HTTPException(status_code=422, detail=f"Unknown sort: {sort}")
+    if year_from is not None and year_to is not None and year_from > year_to:
+        raise HTTPException(status_code=422, detail="year_from is after year_to")
+
+    criteria = dict(year_from=year_from, year_to=year_to, genre=genre, min_ratings=min_ratings)
+    games = get_unswiped_games(limit=limit, sort=sort, **criteria)
     has_more = True
     next_igdb_offset = igdb_offset
 
     if len(games) < REFILL_THRESHOLD and has_twitch_credentials():
-        remote = await igdb_client.fetch_top_games_for_year(
-            year, limit=IGDB_PAGE_SIZE, offset=igdb_offset
+        if not _genre_cache and genre:
+            await list_genres()          # need the id to build the remote query
+        where = igdb_client.build_where(year_from, year_to, _genre_id(genre), min_ratings)
+        remote = await igdb_client.fetch_games(
+            where, sort=sort, limit=IGDB_PAGE_SIZE, offset=igdb_offset, fallback_year=year_from
         )
         if remote:
             upsert_cached_games(remote)
             next_igdb_offset = igdb_offset + len(remote)
-            games = get_unswiped_games(year, limit=limit)
+            games = get_unswiped_games(limit=limit, sort=sort, **criteria)
         else:
-            # We asked IGDB for more and it had none, so this year is finished
-            # even if unswiped cards remain locally. Reporting has_more here
-            # stops the client re-querying IGDB on every one of those swipes.
+            # We asked IGDB for more and it had none, so this filter is
+            # exhausted even if unswiped cards remain locally. Reporting it
+            # here stops the client re-querying on every remaining swipe.
             has_more = False
     elif not games:
-        # nothing cached and no way to fetch more
         has_more = has_twitch_credentials()
 
-    # How many games exist for this year at all. Fetched once per year and
-    # cached, so the progress denominator stays put instead of growing with
-    # every page pulled from IGDB.
-    year_total = get_year_total(year)
-    if year_total is None and has_twitch_credentials():
-        year_total = await igdb_client.count_games_for_year(year)
-        if year_total is not None:
-            set_year_total(year, year_total)
+    # How many games match this filter at all, so the progress denominator is
+    # fixed rather than growing with every page fetched. Counted once per
+    # distinct filter and cached.
+    signature = f"{year_from}|{year_to}|{genre}|{min_ratings}"
+    total = get_filter_total(signature)
+    if total is None and has_twitch_credentials():
+        where = igdb_client.build_where(year_from, year_to, _genre_id(genre), min_ratings)
+        total = await igdb_client.count_games(where)
+        if total is not None:
+            set_filter_total(signature, total)
+
+    reviewed, cached = count_deck_games(**criteria)
 
     return {
         "games": games,
         "has_more": has_more,
         "igdb_offset": next_igdb_offset,
         "has_credentials": has_twitch_credentials(),
-        "year_total": year_total,
+        "filter_total": total,
+        "reviewed": reviewed,
+        "cached": cached,
     }
 
 

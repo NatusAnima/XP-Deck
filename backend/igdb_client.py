@@ -162,50 +162,15 @@ async def _query(body: str) -> List[Dict[str, Any]]:
     return []
 
 
-def _year_filter(year: int) -> str:
-    """The where-clause shared by the deck query and the year count, so the
-    total always describes exactly the set the deck draws from."""
-    start = int(datetime(year, 1, 1, tzinfo=timezone.utc).timestamp())
-    end = int(datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc).timestamp())
-    return (f"where first_release_date >= {start} & first_release_date <= {end}"
-            f" & (game_type = {GAME_TYPES} | game_type = null)"
-            " & version_parent = null;")
+IGDB_GENRES_URL = "https://api.igdb.com/v4/genres"
 
-
-async def count_games_for_year(year: int) -> Optional[int]:
-    """How many games IGDB lists for a year. None if it could not be fetched."""
-    token = await _get_token()
-    if not token:
-        return None
-
-    headers = {
-        "Client-ID": config.TWITCH_CLIENT_ID,
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json"
-    }
-    try:
-        resp = await _client.post(IGDB_COUNT_URL, headers=headers, content=_year_filter(year))
-        resp.raise_for_status()
-        total = resp.json().get("count")
-        logger.info("IGDB lists %s games for %d", total, year)
-        return total
-    except (httpx.HTTPError, ValueError) as e:
-        logger.error("IGDB count failed for %d: %s", year, e)
-        return None
-
-
-async def fetch_top_games_for_year(year: int, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
-    """Fetch the most-reviewed games released in a year, newest cursor first."""
-    games = await _query(f"""
-    {FIELDS}
-    {_year_filter(year)}
-    sort total_rating_count desc;
-    limit {limit};
-    offset {offset};
-    """.strip())
-
-    logger.info("Fetched %d games from IGDB for %d (offset %d)", len(games), year, offset)
-    return [_normalize(g, year) for g in games]
+# ORDER BY clauses the deck may request, mirrored in db.DECK_SORTS.
+IGDB_SORTS = {
+    "popular": "sort total_rating_count desc;",
+    "rating": "sort rating desc;",
+    "newest": "sort first_release_date desc;",
+    "oldest": "sort first_release_date asc;",
+}
 
 
 async def _post(url: str, body: str) -> List[Dict[str, Any]]:
@@ -261,6 +226,75 @@ async def fetch_games_by_ids(igdb_ids: List[int]) -> List[Dict[str, Any]]:
         ))
         games.extend(_normalize(g, None) for g in rows)
     return games
+
+
+def _epoch(year: int, end: bool = False) -> int:
+    return int((datetime(year, 12, 31, 23, 59, 59, tzinfo=timezone.utc) if end
+                else datetime(year, 1, 1, tzinfo=timezone.utc)).timestamp())
+
+
+def build_where(
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    genre_id: Optional[int] = None,
+    min_ratings: int = 0,
+) -> str:
+    """The where-clause shared by the deck fetch and the deck count.
+
+    Both must use exactly the same conditions, or the progress bar counts a
+    different set of games than the deck actually serves.
+    """
+    parts = [f"(game_type = {GAME_TYPES} | game_type = null)", "version_parent = null"]
+
+    if year_from is not None:
+        parts.append(f"first_release_date >= {_epoch(year_from)}")
+    if year_to is not None:
+        parts.append(f"first_release_date <= {_epoch(year_to, end=True)}")
+    else:
+        # An open-ended range still needs a lower bound on the field itself,
+        # or games with no release date at all come back with a null year.
+        parts.append("first_release_date != null")
+
+    if genre_id:
+        parts.append(f"genres = ({int(genre_id)})")
+    if min_ratings > 0:
+        parts.append(f"total_rating_count >= {int(min_ratings)}")
+
+    return "where " + " & ".join(parts) + ";"
+
+
+async def fetch_genres() -> List[Dict[str, Any]]:
+    """The IGDB genre list. Small and effectively static."""
+    rows = await _post(IGDB_GENRES_URL, "fields id, name; sort name asc; limit 100;")
+    return [{"id": r["id"], "name": r["name"]} for r in rows if r.get("name")]
+
+
+async def count_games(where: str) -> Optional[int]:
+    """How many IGDB games match a where-clause."""
+    token = await _get_token()
+    if not token:
+        return None
+    headers = {
+        "Client-ID": config.TWITCH_CLIENT_ID,
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json"
+    }
+    try:
+        resp = await _client.post(IGDB_COUNT_URL, headers=headers, content=where)
+        resp.raise_for_status()
+        return resp.json().get("count")
+    except (httpx.HTTPError, ValueError) as e:
+        logger.error("IGDB count failed: %s", e)
+        return None
+
+
+async def fetch_games(where: str, sort: str = "popular", limit: int = 50,
+                      offset: int = 0, fallback_year: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Fetch a page of games for a deck filter."""
+    order = IGDB_SORTS.get(sort, IGDB_SORTS["popular"])
+    games = await _post(IGDB_GAMES_URL, f"{FIELDS} {where} {order} limit {limit}; offset {offset};")
+    logger.info("Fetched %d games from IGDB (sort=%s, offset=%d)", len(games), sort, offset)
+    return [_normalize(g, fallback_year) for g in games]
 
 
 async def search_games(query: str, limit: int = 20) -> List[Dict[str, Any]]:

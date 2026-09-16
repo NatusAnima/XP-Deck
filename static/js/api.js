@@ -34,9 +34,20 @@ const json = (method, body) => ({
 });
 
 const API = {
-  getDeck(year, limit = 30, igdbOffset = 0) {
-    const params = new URLSearchParams({ year, limit, igdb_offset: igdbOffset });
+  getDeck(filter, limit = 30, igdbOffset = 0) {
+    const params = new URLSearchParams({
+      limit, igdb_offset: igdbOffset,
+      sort: filter.sort || 'popular',
+      min_ratings: filter.minRatings || 0
+    });
+    if (filter.yearFrom != null) params.set('year_from', filter.yearFrom);
+    if (filter.yearTo != null) params.set('year_to', filter.yearTo);
+    if (filter.genre) params.set('genre', filter.genre);
     return request(`/api/deck?${params}`);
+  },
+
+  getGenres() {
+    return request('/api/genres');
   },
 
   searchGames(query, includeLogged = false) {

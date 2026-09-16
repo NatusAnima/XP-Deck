@@ -26,8 +26,15 @@ const PAGE_SIZE = 30;
 // out at 30 and claims "Year Complete!" while the server still has unswiped
 // games cached - and the progress bar sits still through the whole page.
 const REFILL_AT = 8;
+const SORT_LABELS = {
+  popular: 'Most rated',
+  rating: 'Highest rated',
+  newest: 'Newest first',
+  oldest: 'Oldest first'
+};
+
 const STORE = {
-  year: 'xp_year',
+  filter: 'xp_deck_filter',
   sound: 'xp_sound_enabled',
   duration: 'xp_rating_duration',
   quickTag: 'xp_quicktag_enabled'
@@ -40,12 +47,14 @@ class XPDeckApp {
     this.stats = null;
     this.soundEnabled = true;
     this.mode = 'year';           // 'year' | 'search'
-    this.hasMoreForYear = true;
+    this.hasMore = true;
     this.igdbOffset = 0;
-    this.yearTotal = null;   // how many games IGDB lists for the selected year
+    this.filterTotal = null;  // how many games IGDB has for the active filter
+    this.reviewed = 0;
+    this.cached = 0;
     this.hasCredentials = true;
 
-    this.currentYear = this.readStoredYear();
+    this.filter = this.readStoredFilter();
     this.ratingDurationSeconds = 10;
     this.quickTagEnabled = true;
     this.quickTagActive = false;
@@ -60,15 +69,38 @@ class XPDeckApp {
     this.init();
   }
 
-  readStoredYear() {
-    const stored = parseInt(localStorage.getItem(STORE.year), 10);
-    const max = new Date().getFullYear();
-    return stored >= 1980 && stored <= max ? stored : 2004;
+  /** The deck filter, restored from the last session. */
+  readStoredFilter() {
+    const fallback = { yearFrom: 2004, yearTo: 2004, genre: '', minRatings: 0, sort: 'popular' };
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORE.filter));
+      return saved && typeof saved === 'object' ? { ...fallback, ...saved } : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  saveFilter() {
+    localStorage.setItem(STORE.filter, JSON.stringify(this.filter));
+  }
+
+  /** Short description of the active filter, for the toolbar and messages. */
+  describeFilter() {
+    const { yearFrom, yearTo, genre, minRatings, sort } = this.filter;
+    const bits = [
+      yearFrom == null ? 'All time'
+        : yearFrom === yearTo ? String(yearFrom)
+        : `${yearFrom}-${yearTo}`
+    ];
+    if (genre) bits.push(genre);
+    if (sort !== 'popular') bits.push(SORT_LABELS[sort] || sort);
+    if (minRatings > 0) bits.push(`${minRatings}+ ratings`);
+    return bits.join(' · ');
   }
 
   async init() {
     this.initAudio();
-    this.initYearSelector();
+    this.initScopeSelector();
     this.initMenu();
     this.initControls();
     this.initModals();
@@ -82,12 +114,12 @@ class XPDeckApp {
     // a bulk import can touch anything, so reload rather than patch counters
     this.steamDialog = new SteamImportDialog(async () => {
       await this.refreshStats();
-      await this.loadYear(this.currentYear);
+      await this.loadDeck();
     });
 
     await this.loadSettings();
     await this.refreshStats();
-    await this.loadYear(this.currentYear);
+    await this.loadDeck();
 
     // First run: no credentials means no games can ever load, so explain that
     // before the user stares at an empty deck wondering what is broken.
@@ -133,7 +165,7 @@ class XPDeckApp {
       $('setup-client-secret').value = '';
       setTimeout(async () => {
         this.closeModals();
-        await this.loadYear(this.currentYear);
+        await this.loadDeck();
       }, 900);
     } catch (err) {
       this.setSetupStatus(err.message, 'error');
@@ -289,58 +321,127 @@ class XPDeckApp {
   // =========================================================================
   // Year selection & loading
   // =========================================================================
-  initYearSelector() {
+  /** Scope select: All time, each decade, then each individual year. */
+  initScopeSelector() {
     const select = $('year-select');
     const thisYear = new Date().getFullYear();
-    for (let y = thisYear; y >= 1980; y--) {
-      select.add(new Option(y, y));
+
+    select.add(new Option('All time', 'all'));
+
+    const decades = document.createElement('optgroup');
+    decades.label = 'Decades';
+    for (let d = Math.floor(thisYear / 10) * 10; d >= 1970; d -= 10) {
+      decades.append(new Option(`${d}s`, `${d}-${d + 9}`));
     }
-    select.value = this.currentYear;
+    select.add(decades);
+
+    const years = document.createElement('optgroup');
+    years.label = 'Years';
+    for (let y = thisYear; y >= 1970; y--) years.append(new Option(y, `${y}-${y}`));
+    select.add(years);
+
+    select.value = this.scopeValue();
     select.addEventListener('change', (e) => {
       this.playSound('click');
-      this.loadYear(parseInt(e.target.value, 10));
+      const [from, to] = e.target.value === 'all' ? [null, null]
+        : e.target.value.split('-').map(Number);
+      this.filter.yearFrom = from;
+      this.filter.yearTo = to;
+      this.loadDeck();
     });
   }
 
-  async loadYear(year) {
-    this.mode = 'year';
-    this.currentYear = year;
+  /** Populate the genre list and open the filter dialog. */
+  async openFilters() {
+    this.playSound('click');
+    const select = $('filter-genre');
+
+    if (select.options.length <= 1) {
+      try {
+        const { genres } = await API.getGenres();
+        genres.forEach(g => select.add(new Option(g.name, g.name)));
+      } catch {
+        // leave "All genres" as the only option; the deck still works
+      }
+    }
+
+    // reflect saved values, so Cancel genuinely cancels
+    select.value = this.filter.genre || '';
+    $('filter-sort').value = this.filter.sort;
+    $('filter-min-ratings').value = this.filter.minRatings;
+    this.updateRatingsHint();
+    this.openModal('modal-filters');
+  }
+
+  updateRatingsHint() {
+    const n = Number($('filter-min-ratings').value) || 0;
+    const sort = $('filter-sort').value;
+    $('filter-ratings-hint').textContent =
+      n === 0
+        ? (sort === 'rating' ? 'With no floor, "highest rated" returns obscure games.' : 'No floor - everything IGDB has.')
+        : `Only games at least ${n} people have rated.`;
+  }
+
+  applyFilters() {
+    this.filter.genre = $('filter-genre').value;
+    this.filter.sort = $('filter-sort').value;
+    this.filter.minRatings = Math.max(0, Number($('filter-min-ratings').value) || 0);
+    this.closeModals();
+    this.loadDeck();
+  }
+
+  resetFilters() {
+    $('filter-genre').value = '';
+    $('filter-sort').value = 'popular';
+    $('filter-min-ratings').value = 0;
+    this.updateRatingsHint();
+  }
+
+  scopeValue() {
+    const { yearFrom, yearTo } = this.filter;
+    return yearFrom == null ? 'all' : `${yearFrom}-${yearTo}`;
+  }
+
+  /** Reload the deck from scratch for the current filter. */
+  async loadDeck() {
+    this.mode = 'deck';
     this.igdbOffset = 0;
-    localStorage.setItem(STORE.year, String(year));
+    this.saveFilter();
     $('deck-search').value = '';
 
     const select = $('year-select');
-    if (select.value !== String(year)) select.value = year;
+    // an arbitrary saved range may not be one of the presets
+    if (select.value !== this.scopeValue()) {
+      select.value = [...select.options].some(o => o.value === this.scopeValue())
+        ? this.scopeValue() : 'all';
+    }
+    $('filter-summary').textContent = this.describeFilter();
 
-    this.setStatus(`Loading games for ${year}...`);
+    this.setStatus(`Loading ${this.describeFilter()}...`);
     await this.fetchDeck();
   }
 
   async fetchDeck() {
     try {
-      const data = await API.getDeck(this.currentYear, PAGE_SIZE, this.igdbOffset);
+      const data = await API.getDeck(this.filter, PAGE_SIZE, this.igdbOffset);
       this.queue = data.games;
-      this.hasMoreForYear = data.has_more;
+      this.hasMore = data.has_more;
       this.igdbOffset = data.igdb_offset;
       this.hasCredentials = data.has_credentials;
-      this.yearTotal = data.year_total ?? null;
-
-      // A deck fetch can pull a fresh page from IGDB, which grows total_cached
-      // for this year - so the progress denominator is stale until we re-read
-      // the stats. Cheap here (once per year load or Load More), unlike the
-      // per-swipe refresh this replaced.
-      await this.refreshStats();
+      this.filterTotal = data.filter_total ?? null;
+      this.reviewed = data.reviewed;
+      this.cached = data.cached;
 
       this.renderStack();
       this.setStatus(
         this.queue.length
-          ? `Ready. ${this.queue.length} games queued for ${this.currentYear}.`
-          : `No unreviewed games left for ${this.currentYear}.`
+          ? `Ready. ${this.queue.length} games queued - ${this.describeFilter()}.`
+          : `No unreviewed games left for ${this.describeFilter()}.`
       );
     } catch (err) {
       this.queue = [];
       this.renderStack();
-      this.setStatus(`Could not load ${this.currentYear}: ${err.message}`, true);
+      this.setStatus(`Could not load the deck: ${err.message}`, true);
     }
   }
 
@@ -352,15 +453,16 @@ class XPDeckApp {
     if (this.extending) return;
     this.extending = true;
     try {
-      const data = await API.getDeck(this.currentYear, PAGE_SIZE, this.igdbOffset);
-      this.hasMoreForYear = data.has_more;
+      const data = await API.getDeck(this.filter, PAGE_SIZE, this.igdbOffset);
+      this.hasMore = data.has_more;
       this.igdbOffset = data.igdb_offset;
+      this.filterTotal = data.filter_total ?? this.filterTotal;
+      this.cached = data.cached;
 
       const known = new Set(this.queue.map(g => g.igdb_id));
       const fresh = data.games.filter(g => !known.has(g.igdb_id));
       if (fresh.length) {
         this.queue.push(...fresh);
-        await this.refreshStats();   // the cache may have grown; move the bar
         this.restack();
       }
     } catch {
@@ -378,15 +480,24 @@ class XPDeckApp {
     await this.fetchDeck();
   }
 
-  advanceToNextYear() {
+  /** Move to the next decade or year, depending on the current scope. */
+  advanceScope() {
     this.playSound('click');
-    const next = this.currentYear + 1;
-    this.loadYear(next <= new Date().getFullYear() ? next : 1980);
+    const { yearFrom, yearTo } = this.filter;
+    if (yearFrom == null) return;
+
+    const span = yearTo - yearFrom + 1;
+    const maxYear = new Date().getFullYear();
+    let from = yearFrom + span;
+    if (from > maxYear) from = 1970;
+    this.filter.yearFrom = from;
+    this.filter.yearTo = Math.min(from + span - 1, maxYear);
+    this.loadDeck();
   }
 
   async runSearch(query) {
     if (!query.trim()) {
-      this.loadYear(this.currentYear);
+      this.loadDeck();
       return;
     }
 
@@ -397,8 +508,7 @@ class XPDeckApp {
       this.mode = 'search';
       this.searchQuery = query;
       this.queue = data.games;
-      this.hasMoreForYear = false;
-      await this.refreshStats();   // search caches new games too
+      this.hasMore = false;
       this.renderStack();
 
       this.setStatus(
@@ -449,7 +559,7 @@ class XPDeckApp {
 
     // An unconfigured app has no games for a reason that has nothing to do
     // with the year, so it gets its own wording rather than "Year Complete!".
-    const exhausted = !this.hasMoreForYear && !isSearch && !noKeys;
+    const exhausted = !this.hasMore && !isSearch && !noKeys;
 
     if (noKeys) {
       $('empty-heading').textContent = 'Almost there';
@@ -459,7 +569,7 @@ class XPDeckApp {
       $('empty-message').textContent = `Nothing matched "${this.searchQuery || ''}".`;
     } else {
       $('empty-heading').textContent = 'Year Complete!';
-      $('empty-message').textContent = `You have reviewed all available titles for ${this.currentYear}.`;
+      $('empty-message').textContent = `You have reviewed everything matching ${this.describeFilter()}.`;
     }
 
     const note = $('empty-note');
@@ -472,8 +582,11 @@ class XPDeckApp {
     loadMore.textContent = exhausted ? 'No More Games on IGDB' : 'Download Next 30 Games';
 
     const nextYear = $('empty-next-year-btn');
-    nextYear.hidden = isSearch || noKeys;
-    nextYear.textContent = `Advance to ${this.currentYear + 1}`;
+    // "next" only means something when the scope is a year or a decade
+    nextYear.hidden = isSearch || noKeys || this.filter.yearFrom == null;
+    nextYear.textContent = this.filter.yearFrom === this.filter.yearTo
+      ? `Advance to ${this.filter.yearFrom + 1}`
+      : 'Advance to the Next Decade';
 
     const setupBtn = $('empty-setup-btn');
     setupBtn.hidden = !noKeys;
@@ -558,7 +671,7 @@ class XPDeckApp {
   }
 
   topUpStack() {
-    if (this.mode === 'year' && this.queue.length <= REFILL_AT && this.hasMoreForYear) {
+    if (this.mode === 'deck' && this.queue.length <= REFILL_AT && this.hasMore) {
       this.extendDeck();
     }
 
@@ -743,7 +856,7 @@ class XPDeckApp {
       const game = res.restored_game;
       this.applyStatDelta(res.undone_action, -1, game.release_year);
 
-      if (this.mode === 'year' && game.release_year !== this.currentYear) {
+      if (this.mode === 'deck' && !this.matchesFilter(game)) {
         this.setStatus(`Restored "${game.title}" (${game.release_year}) - switch to that year to see it.`);
       } else {
         this.restoreToDeck(game);
@@ -881,6 +994,15 @@ class XPDeckApp {
    * single swipe - a full GROUP BY over the cache plus a table re-render, per
    * card. The server is re-consulted when the stats dialog opens.
    */
+  /** Whether a game would appear under the active deck filter. */
+  matchesFilter(game) {
+    const { yearFrom, yearTo, genre, minRatings } = this.filter;
+    if (yearFrom != null && !(game.release_year >= yearFrom && game.release_year <= yearTo)) return false;
+    if (genre && !(game.genres || '').split(',').map(g => g.trim()).includes(genre)) return false;
+    if (minRatings > 0 && (game.total_rating_count || 0) < minRatings) return false;
+    return true;
+  }
+
   applyStatDelta(status, delta, releaseYear) {
     if (!this.stats) return;
     this.stats.status_counts[status] = (this.stats.status_counts[status] || 0) + delta;
@@ -904,10 +1026,13 @@ class XPDeckApp {
    * fallback.
    */
   updateProgress() {
-    const year = this.stats?.years?.[this.currentYear];
-    const done = year?.total_swiped ?? 0;
-    const known = this.mode === 'year' && this.yearTotal;
-    const total = known ? this.yearTotal : (year?.total_cached ?? 0);
+    // Counted against everything IGDB has for this filter, so the denominator
+    // is fixed. Falls back to the local cache size when the total is unknown
+    // (no credentials, or the count request failed) - that one does grow as
+    // pages arrive, which is why it is only a fallback.
+    const known = this.mode === 'deck' && this.filterTotal;
+    const done = this.reviewed;
+    const total = known ? this.filterTotal : this.cached;
     const pct = total ? Math.min(100, (done / total) * 100) : 0;
 
     $('xp-progress-bar').style.width = `${pct}%`;
@@ -918,7 +1043,7 @@ class XPDeckApp {
     bar.setAttribute('aria-valuenow', Math.round(pct));
     bar.setAttribute('aria-valuetext', `${done} of ${total} games reviewed`);
     bar.parentElement.title = known
-      ? `${done.toLocaleString()} of the ${total.toLocaleString()} games IGDB lists for ${this.currentYear}`
+      ? `${done.toLocaleString()} of the ${total.toLocaleString()} games IGDB has for ${this.describeFilter()}`
       : `${done.toLocaleString()} of ${total.toLocaleString()} games cached locally`;
   }
 
@@ -956,7 +1081,7 @@ class XPDeckApp {
   // =========================================================================
   showDangerConfirm(scope) {
     const labels = {
-      year: `every swipe for ${this.currentYear}`,
+      year: `every swipe for ${this.filter.yearFrom ?? 'the current scope'}`,
       all_swipes: 'all swipe records across every year',
       factory: 'everything - swipes, cached games and settings'
     };
@@ -985,11 +1110,11 @@ class XPDeckApp {
     if (!scope) return;
 
     try {
-      await API.resetData(scope, scope === 'year' ? this.currentYear : null);
+      await API.resetData(scope, scope === 'year' ? this.filter.yearFrom : null);
       this.playSound('played');
       this.closeModals();
       await this.refreshStats();
-      await this.loadYear(this.currentYear);
+      await this.loadDeck();
       this.setStatus('Reset complete.');
     } catch (err) {
       this.setStatus(`Reset failed: ${err.message}`, true);
@@ -1113,7 +1238,13 @@ class XPDeckApp {
     });
 
     on('empty-load-more-btn', 'click', () => this.loadMore());
-    on('empty-next-year-btn', 'click', () => this.advanceToNextYear());
+    on('empty-next-year-btn', 'click', () => this.advanceScope());
+
+    on('btn-filters', 'click', () => this.openFilters());
+    on('btn-filters-apply', 'click', () => this.applyFilters());
+    on('btn-filters-reset', 'click', () => this.resetFilters());
+    $('filter-min-ratings').addEventListener('input', () => this.updateRatingsHint());
+    $('filter-sort').addEventListener('change', () => this.updateRatingsHint());
     on('empty-setup-btn', 'click', () => this.openSetup());
 
     on('viewer-prev', 'click', () => this.navigateViewer(-1));

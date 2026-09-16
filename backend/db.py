@@ -11,7 +11,7 @@ STATUSES = ("played", "skipped", "backlog")
 
 # Bumped whenever _run_migrations gains a step. Stored in SQLite's own
 # PRAGMA user_version slot, so no bookkeeping table is needed.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # The columns the UI actually renders. Selecting these by name instead of g.*
 # keeps the deck response lean and stops new columns leaking to the browser.
@@ -96,10 +96,11 @@ def init_db():
             value TEXT
         );
 
-        -- How many games IGDB lists for a release year, so the progress bar has
-        -- a fixed denominator instead of one that grows as pages are fetched.
-        CREATE TABLE IF NOT EXISTS year_totals (
-            year INTEGER PRIMARY KEY,
+        -- How many games IGDB has for a given deck filter, so the progress bar
+        -- has a fixed denominator instead of one that grows as pages arrive.
+        -- Keyed by the whole filter, since the deck is no longer year-only.
+        CREATE TABLE IF NOT EXISTS filter_totals (
+            signature TEXT PRIMARY KEY,
             total INTEGER NOT NULL,
             fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -125,6 +126,8 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
 
     if version < 1:
         _migrate_v1(conn)
+    if version < 2:
+        _migrate_v2(conn)
 
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
@@ -165,6 +168,18 @@ def _migrate_v1(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE cached_games DROP COLUMN raw_payload")
 
     logger.warning("Migration v1: purged %d seed-catalog rows (igdb_id 1001-1015)", purged)
+
+
+def _migrate_v2(conn: sqlite3.Connection) -> None:
+    """Replace the year-keyed totals cache with a filter-keyed one.
+
+    The deck can now be filtered by genre, rating floor and sort order, so a
+    total is only meaningful for the exact filter it was counted under. The old
+    rows are just a cache of a single IGDB call each, so they are dropped
+    rather than migrated.
+    """
+    conn.execute("DROP TABLE IF EXISTS year_totals")
+    logger.info("Migration v2: totals cache is now keyed by deck filter")
 
 
 def upsert_cached_games(games: List[Dict[str, Any]]) -> int:
@@ -208,23 +223,97 @@ def upsert_cached_games(games: List[Dict[str, Any]]) -> int:
     return len(rows)
 
 
-def get_unswiped_games(year: int, limit: int = 30) -> List[Dict[str, Any]]:
-    """Return the next unswiped games for a year, most-reviewed first.
+# ORDER BY clauses the deck may use. Whitelisted: the key arrives from the
+# client and is interpolated into SQL.
+DECK_SORTS = {
+    "popular": "g.total_rating_count DESC, g.rating DESC",
+    "rating": "g.rating DESC, g.total_rating_count DESC",
+    "newest": "g.release_year DESC, g.total_rating_count DESC",
+    "oldest": "g.release_year ASC, g.total_rating_count DESC",
+}
+
+
+def deck_conditions(
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    genre: Optional[str] = None,
+    min_ratings: int = 0,
+) -> tuple:
+    """Build the shared WHERE fragment for deck queries.
+
+    Returns (sql_fragment, params).
+    """
+    clauses, params = [], []
+
+    if year_from is not None:
+        clauses.append("g.release_year >= ?")
+        params.append(year_from)
+    if year_to is not None:
+        clauses.append("g.release_year <= ?")
+        params.append(year_to)
+
+    if genre:
+        # genres are stored as a comma-separated name list, so pad both sides
+        # and match a whole token: otherwise "Strategy" also matches
+        # "Real Time Strategy (RTS)" and "Turn-based strategy (TBS)".
+        clauses.append("(', ' || g.genres || ', ') LIKE ? ESCAPE '\\'")
+        params.append(f"%, {_escape_like(genre)}, %")
+
+    if min_ratings > 0:
+        clauses.append("g.total_rating_count >= ?")
+        params.append(min_ratings)
+
+    return ("".join(f" AND {c}" for c in clauses), params)
+
+
+def get_unswiped_games(
+    limit: int = 30,
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    genre: Optional[str] = None,
+    min_ratings: int = 0,
+    sort: str = "popular",
+) -> List[Dict[str, Any]]:
+    """Return the next unswiped games matching the deck filter.
 
     No offset: swiped games are excluded by the LEFT JOIN, so the result set is
     self-paginating. An offset here would permanently skip unseen games as the
     unswiped set shrinks.
     """
+    where, params = deck_conditions(year_from, year_to, genre, min_ratings)
+    order = DECK_SORTS.get(sort, DECK_SORTS["popular"])
+
     with closing(get_connection()) as conn:
         cursor = conn.execute(f"""
             SELECT {GAME_COLUMNS}
             FROM cached_games g
             LEFT JOIN user_swipes s ON g.igdb_id = s.igdb_id
-            WHERE s.igdb_id IS NULL AND g.release_year = ?
-            ORDER BY g.total_rating_count DESC, g.rating DESC
+            WHERE s.igdb_id IS NULL{where}
+            ORDER BY {order}
             LIMIT ?
-        """, (year, limit))
+        """, (*params, limit))
         return [_row_to_game(row) for row in cursor.fetchall()]
+
+
+def count_deck_games(
+    year_from: Optional[int] = None,
+    year_to: Optional[int] = None,
+    genre: Optional[str] = None,
+    min_ratings: int = 0,
+) -> tuple:
+    """Return (reviewed, cached) counts for the current deck filter.
+
+    Used as the progress fallback when the IGDB total is unknown.
+    """
+    where, params = deck_conditions(year_from, year_to, genre, min_ratings)
+    with closing(get_connection()) as conn:
+        row = conn.execute(f"""
+            SELECT COUNT(*) AS cached, COUNT(s.igdb_id) AS reviewed
+            FROM cached_games g
+            LEFT JOIN user_swipes s ON g.igdb_id = s.igdb_id
+            WHERE 1=1{where}
+        """, params).fetchone()
+        return row["reviewed"], row["cached"]
 
 
 def search_cached_games(query: str, limit: int = 20,
@@ -450,8 +539,7 @@ def get_stats() -> Dict[str, Any]:
                 SUM(s.status = 'played') AS played,
                 SUM(s.status = 'skipped') AS skipped,
                 SUM(s.status = 'backlog') AS backlog,
-                ROUND(100.0 * COUNT(s.igdb_id) / COUNT(g.igdb_id), 1) AS percentage_reviewed,
-                (SELECT total FROM year_totals t WHERE t.year = g.release_year) AS total_available
+                ROUND(100.0 * COUNT(s.igdb_id) / COUNT(g.igdb_id), 1) AS percentage_reviewed
             FROM cached_games g
             LEFT JOIN user_swipes s ON g.igdb_id = s.igdb_id
             WHERE g.release_year IS NOT NULL
@@ -490,21 +578,24 @@ def get_all_settings() -> Dict[str, Any]:
         return dict(conn.execute("SELECT key, value FROM user_settings").fetchall())
 
 
-def get_year_total(year: int) -> Optional[int]:
-    """Cached count of games IGDB lists for a release year, or None."""
+def get_filter_total(signature: str) -> Optional[int]:
+    """Cached count of IGDB games matching a deck filter, or None."""
     with closing(get_connection()) as conn:
-        row = conn.execute("SELECT total FROM year_totals WHERE year = ?", (year,)).fetchone()
+        row = conn.execute(
+            "SELECT total FROM filter_totals WHERE signature = ?", (signature,)
+        ).fetchone()
         return row[0] if row else None
 
 
-def set_year_total(year: int, total: int) -> None:
-    """Record the IGDB count for a year."""
+def set_filter_total(signature: str, total: int) -> None:
+    """Record the IGDB count for a deck filter."""
     with closing(get_connection()) as conn, conn:
         conn.execute("""
-            INSERT INTO year_totals (year, total, fetched_at)
+            INSERT INTO filter_totals (signature, total, fetched_at)
             VALUES (?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(year) DO UPDATE SET total=excluded.total, fetched_at=CURRENT_TIMESTAMP
-        """, (year, total))
+            ON CONFLICT(signature) DO UPDATE SET
+                total=excluded.total, fetched_at=CURRENT_TIMESTAMP
+        """, (signature, total))
 
 
 # =========================================================================

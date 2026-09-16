@@ -1486,3 +1486,48 @@ body.sound-off .icon-sound-off { display: inline-block; }
   outline: 2px solid #FFCC00;
   outline-offset: 1px;
 }
+
+/* ==========================================================================
+   Deck filters
+   ========================================================================== */
+.filter-summary {
+  font-size: 11px;
+  font-weight: bold;
+  color: var(--xp-accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.filter-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.filter-fields label {
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.filter-fields select,
+.filter-fields input {
+  font-weight: normal;
+}
+
+.filter-ratings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-ratings-row input {
+  width: 92px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .filter-summary { display: none; }
+}

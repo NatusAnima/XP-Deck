@@ -14,6 +14,7 @@
   * **Swipe Up / `W` or `↑`:** Send to **Active Backlog** (want to play).
   * **`Ctrl+Z` / `U`:** **Undo** last swipe (restores the card to the deck).
 * **Search by Title:** Find any game across every year without knowing its release date — results drop straight into the deck.
+* **Deck Filters:** Swipe a single year, a decade, or all of gaming history. Narrow by genre, order by most-rated / highest-rated / newest / oldest, and set a minimum-ratings floor to keep obscure titles out. The filter persists between sessions.
 * **Add Without Swiping:** An **Add a Game** dialog on both the deck and the catalog — search a title, then file it as Played, Backlog or Skipped in one click. Games already in your archive show their current status, so it doubles as a way to move them.
 * **Manual Entries:** Homebrew, mods, fan translations or anything IGDB simply does not list can be added by hand. These get negative ids, so a later IGDB fetch can never overwrite them.
 * **Steam Import:** Pull your Steam library in bulk, with playtime. Set a minimum-hours filter (skip everything under an hour, say), review exactly what matched, and confirm before anything is written. Games already logged are listed but unticked, so a re-import never quietly overwrites your own edits.
@@ -118,6 +119,14 @@ Then open <http://localhost:8000>. To use it from your phone, open
 | `Ctrl+Z` or `U` | **Undo** last swipe |
 | `1`–`9`, `0` | Select a rating during quick-tag (`0` = 10) |
 | `Escape` | Cancel the quick-tag, or close a dialog |
+
+### A note on "Highest rated"
+
+IGDB lets anyone rate anything, so sorting purely by score surfaces unknown games
+with five perfect votes. Pair **Highest rated** with a **minimum ratings** floor —
+200 or so — and you get the games people actually agree are good. The floor also
+makes the progress bar meaningful: *all time* is ~233,000 games, but *all time,
+200+ ratings* is under a thousand.
 
 Shortcuts stand down while a text field is focused, and `Space`/`Enter` always
 activate a focused button rather than flipping the card.
