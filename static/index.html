@@ -478,55 +478,6 @@
     </div>
   </div>
 
-  <div class="xp-modal-overlay" id="modal-add" role="dialog" aria-labelledby="modal-add-title" aria-modal="true">
-    <div class="xp-dialog dialog-wide">
-      <div class="xp-title-bar">
-        <div class="xp-title-content">
-          <svg class="xp-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="#FFF" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          <span id="modal-add-title">Add a Game to Your Archive</span>
-        </div>
-        <button class="xp-win-btn close modal-close" aria-label="Close">&#10005;</button>
-      </div>
-
-      <div class="xp-dialog-body">
-        <form class="add-search-row" id="add-search-form" role="search">
-          <label for="add-search" class="xp-label">Title:</label>
-          <input type="search" id="add-search" class="xp-select" autocomplete="off"
-                 placeholder="Type a game name, e.g. Deus Ex" aria-label="Search for a game to add">
-          <button type="submit" class="xp-button" id="add-search-btn">Search</button>
-        </form>
-        <p class="field-note">
-          Pick a result and choose where it belongs. No swiping required.
-        </p>
-
-        <div class="add-results xp-sunken" id="add-results">
-          <p class="add-placeholder">Search for a game to get started.</p>
-        </div>
-      </div>
-
-      <div class="xp-dialog-footer">
-        <span class="add-footer-status" id="add-footer-status"></span>
-        <button class="xp-button modal-close">Done</button>
-      </div>
-    </div>
-  </div>
-
-  <template id="tpl-add-row">
-    <div class="add-row">
-      <img class="add-cover" data-el="cover" alt="">
-      <div class="add-info">
-        <div class="add-title" data-el="title"></div>
-        <div class="add-meta" data-el="meta"></div>
-      </div>
-      <div class="add-actions">
-        <span class="status-pill add-current" data-el="current" hidden></span>
-        <button class="xp-button xp-button-green add-btn" data-status="played">Played</button>
-        <button class="xp-button xp-button-blue add-btn" data-status="backlog">Backlog</button>
-        <button class="xp-button xp-button-red add-btn" data-status="skipped">Skipped</button>
-      </div>
-    </div>
-  </template>
-
   <div class="xp-modal-overlay" id="modal-picture-viewer" role="dialog" aria-labelledby="viewer-title" aria-modal="true">
     <div class="xp-fax-viewer">
       <div class="xp-title-bar">
@@ -800,6 +751,7 @@
 
   <script src="/static/js/shared.js"></script>
   <script src="/static/js/api.js"></script>
+  <script src="/static/js/add-game.js"></script>
   <script src="/static/js/gestures.js"></script>
   <script src="/static/js/shortcuts.js"></script>
   <script src="/static/js/app.js"></script>

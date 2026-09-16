@@ -296,7 +296,13 @@ async def get_catalog(
         raise HTTPException(status_code=422, detail=f"Unknown sort: {sort}")
 
     games = get_catalog_games(status=status, search=search, sort_by=sort)
-    return {"count": len(games), "games": games}
+    return {
+        "count": len(games),
+        "games": games,
+        # shown in the Explorer address bar, so it points at the real folder
+        # rather than a made-up path
+        "archive_path": str(config.PROJECT_ROOT),
+    }
 
 
 @app.put("/api/catalog/{igdb_id}")
@@ -355,16 +361,34 @@ async def handle_export(format: Literal["csv", "json", "playnite"] = "csv"):
     )
 
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+class RevalidatingStaticFiles(StaticFiles):
+    """Serve static assets with `Cache-Control: no-cache`.
+
+    XP-Deck is updated by pulling new files, and browsers will happily keep a
+    cached app.js while re-fetching index.html - which shows new markup wired
+    to old code, so new buttons silently do nothing. `no-cache` still allows
+    caching, it just forces a revalidation, so unchanged files cost a 304.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/static", RevalidatingStaticFiles(directory=STATIC_DIR), name="static")
+
+# Pages get the same treatment, for the same reason.
+PAGE_HEADERS = {"Cache-Control": "no-cache"}
 
 
 @app.get("/catalog")
 async def catalog_page():
     """Serve the Windows Explorer style catalog page."""
-    return FileResponse(STATIC_DIR / "catalog.html")
+    return FileResponse(STATIC_DIR / "catalog.html", headers=PAGE_HEADERS)
 
 
 @app.get("/")
 async def root():
     """Serve the main application frame."""
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers=PAGE_HEADERS)

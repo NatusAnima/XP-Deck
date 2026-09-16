@@ -78,6 +78,7 @@ class XPDeckApp {
       () => this.flipTopCard()
     );
     this.shortcuts = new KeyboardShortcuts(this);
+    this.addDialog = new AddGameDialog((g, status, prev) => this.onGameAdded(g, status, prev));
 
     await this.loadSettings();
     await this.refreshStats();
@@ -801,98 +802,17 @@ class XPDeckApp {
   // =========================================================================
   openAddGame() {
     this.playSound('click');
-    $('add-footer-status').textContent = '';
-    $('modal-add').classList.add('open');
-    $('add-search').focus();
-    $('add-search').select();
+    this.addDialog.open();
   }
 
-  async runAddSearch(query) {
-    if (!query.trim()) return;
-
-    const results = $('add-results');
-    results.replaceChildren(this.addPlaceholder(`Searching for "${query}"...`));
-
-    try {
-      // include_logged, so a game already in the archive shows up with its
-      // current status instead of silently going missing
-      const data = await API.searchGames(query, true);
-      if (!data.games.length) {
-        results.replaceChildren(this.addPlaceholder(
-          data.has_credentials
-            ? `Nothing found for "${query}".`
-            : 'No game database connected - finish setup under Options first.'));
-        return;
-      }
-      results.replaceChildren(...data.games.map(g => this.buildAddRow(g)));
-    } catch (err) {
-      results.replaceChildren(this.addPlaceholder(`Search failed: ${err.message}`, true));
-    }
-  }
-
-  addPlaceholder(text, isError = false) {
-    const p = document.createElement('p');
-    p.className = isError ? 'add-placeholder error-text' : 'add-placeholder';
-    p.textContent = text;
-    return p;
-  }
-
-  buildAddRow(game) {
-    const { el: row, r } = clone('tpl-add-row');
-    const d = displayFields(game);
-
-    r.cover.src = game.cover_url || '';
-    r.cover.alt = '';
-    hideOnError(r.cover);
-    r.title.textContent = game.title;
-    r.meta.textContent = `${d.year} • ${d.primaryGenre} • ${d.rating}`;
-
-    this.markAddRow(row, r.current, game.status);
-
-    row.querySelector('.add-actions').addEventListener('click', (e) => {
-      const button = e.target.closest('.add-btn');
-      if (button) this.addGame(game, button.dataset.status, row, r.current);
-    });
-
-    return row;
-  }
-
-  markAddRow(row, pill, status) {
-    row.classList.toggle('is-logged', Boolean(status));
-    pill.hidden = !status;
-    pill.className = `status-pill add-current ${status || ''}`;
-    if (status) pill.textContent = status;
-
-    // the button matching the current status is the one that would be a no-op
-    row.querySelectorAll('.add-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.status === status);
-    });
-  }
-
-  async addGame(game, status, row, pill) {
-    row.querySelectorAll('.add-btn').forEach(b => { b.disabled = true; });
-    try {
-      await API.recordSwipe(game.igdb_id, status);
-      const previous = game.status;
-      game.status = status;
-      this.markAddRow(row, pill, status);
-      this.playSound(status);
-
-      // keep the running totals honest without a full stats round-trip
-      if (previous) this.applyStatDelta(previous, -1, game.release_year);
-      this.applyStatDelta(status, 1, game.release_year);
-
-      // if it was sitting in the deck, it is no longer unreviewed
-      this.dropFromQueue(game.igdb_id);
-
-      $('add-footer-status').textContent =
-        `${game.title} - ${previous ? `moved to ${status}` : `added to ${status}`}.`;
-    } catch (err) {
-      this.playSound('error');
-      $('add-footer-status').textContent = `Could not add: ${err.message}`;
-    } finally {
-      row.querySelectorAll('.add-btn').forEach(b => { b.disabled = false; });
-    }
+  /** Called by the dialog once a status is saved. */
+  onGameAdded(game, status, previous) {
+    this.playSound(status);
+    // keep the running totals honest without a full stats round-trip
+    if (previous) this.applyStatDelta(previous, -1, game.release_year);
+    this.applyStatDelta(status, 1, game.release_year);
+    // if it was sitting in the deck, it is no longer unreviewed
+    this.dropFromQueue(game.igdb_id);
   }
 
   /** Remove a game from the current deck queue, if it is there. */
@@ -1180,11 +1100,6 @@ class XPDeckApp {
     on('sound-toggle-btn', 'click', () => this.toggleSound());
 
     on('btn-add-game', 'click', () => this.openAddGame());
-    on('add-search-form', 'submit', (e) => {
-      e.preventDefault();
-      this.runAddSearch($('add-search').value);
-    });
-
     on('deck-search-form', 'submit', (e) => {
       e.preventDefault();
       $('deck-search').blur();

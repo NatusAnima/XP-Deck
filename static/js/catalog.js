@@ -51,6 +51,16 @@ class CatalogExplorer {
 
     $('btn-refresh').addEventListener('click', () => this.load());
 
+    // The dialog reloads the list afterwards, so a game added here shows up
+    // immediately behind it.
+    this.addDialog = new AddGameDialog(() => this.load());
+    $('btn-add-game').addEventListener('click', () => this.addDialog.open());
+    const task = $('task-add-game');
+    task.addEventListener('click', () => this.addDialog.open());
+    task.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this.addDialog.open(); }
+    });
+
     // one delegated listener for every row action
     $('catalog-tbody').addEventListener('click', (e) => {
       const button = e.target.closest('button[data-action]');
@@ -74,6 +84,7 @@ class CatalogExplorer {
       this.games = catalog.games;
       this.render();
       this.renderCounts(stats);
+      if (catalog.archive_path) $('archive-path').textContent = catalog.archive_path;
     } catch (err) {
       if (ticket !== this.requestId) return;
       this.showMessage(`Error loading archive: ${err.message}`, true);
